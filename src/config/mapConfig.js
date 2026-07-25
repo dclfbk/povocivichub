@@ -274,6 +274,7 @@ export const ICON_VISUALS = {
   college: { emoji: '🎓', color: CATEGORY_STYLES.pendolari.color },
   bus: { emoji: '🚌', color: CATEGORY_STYLES.pendolari.color },
   copyshop: { emoji: '🖨️', color: CATEGORY_STYLES.pendolari.color },
+  office_it: { emoji: '💻', color: CATEGORY_STYLES.pendolari.color },
   sport: { emoji: '⚽', color: CATEGORY_STYLES.residenti.color },
   park: { emoji: '🌳', color: CATEGORY_STYLES.cross_civic.color },
   drinking_water: { emoji: '🚰', color: CATEGORY_STYLES.cross_civic.color },
@@ -365,7 +366,22 @@ const SUB_TYPE_LABELS = {
   trench: 'Trincea Storica',
   market: 'Mercato Settimanale',
   historic: 'Stoi Militari',
-  sports_centre: 'Centro Sportivo'
+  sports_centre: 'Centro Sportivo',
+  bank: 'Banca',
+  climbing: "Falesia d'Arrampicata",
+  fitness_station: 'Area Fitness',
+  footway: 'Percorso Pedonale',
+  kindergarten: "Asilo Nido / Scuola dell'Infanzia",
+  platform: 'Fermata Bus',
+  post_office: 'Ufficio Postale',
+  school: 'Scuola',
+  sports_hall: 'Palestra',
+  recycling: 'Isola Ecologica',
+  playground: 'Parco Giochi',
+  information: 'Punto Informativo',
+  it: 'Azienda ICT',
+  research: 'Ufficio di Ricerca',
+  educational_institution: 'Istituto Formativo'
 };
 
 // Placeholder banner (data: URI, no network request) shown in the PoI popup
@@ -404,6 +420,11 @@ export function buildPoiPopupHtml(props) {
         <span style="display: inline-block; margin-top: 6px; padding: 3px 9px; border-radius: 999px; font-size: 10px; font-weight: 700; color: #ffffff; background: ${badge.color};">
           ${badge.label}
         </span>
+        ${props.accesso_pubblico !== false ? `
+          <span style="display: inline-block; margin-top: 6px; margin-left: 4px; padding: 3px 9px; border-radius: 999px; font-size: 10px; font-weight: 700; color: #065f46; background: #6ee7b7;">
+            🌐 Accesso Pubblico
+          </span>
+        ` : ''}
         ${serviceType ? `
           <div style="font-size: 11px; color: #64748b; margin-top: 6px; font-weight: 600;">
             ${serviceType}

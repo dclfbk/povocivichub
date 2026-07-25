@@ -35,7 +35,10 @@ export default function Map({
   onDrawComplete,
   clearDrawSignal,
   mapStyle,
-  flyToTarget
+  flyToTarget,
+  initialViewState,
+  initialSelectedHexId,
+  onViewStateChange
 }) {
   const mapContainerRef = useRef(null);
   const mapRef = useRef(null);
@@ -44,6 +47,11 @@ export default function Map({
   const drawPointsRef = useRef([]);
   const poisDataRef = useRef(poisData);
   const didMountStyleRef = useRef(false);
+  const didInitTerrainRef = useRef(false);
+  const onViewStateChangeRef = useRef(onViewStateChange);
+  useEffect(() => {
+    onViewStateChangeRef.current = onViewStateChange;
+  }, [onViewStateChange]);
 
   // Latest prop values, kept in refs so the layer-(re)creation logic below
   // (shared between the initial mount and every basemap-style switch) always
@@ -249,17 +257,20 @@ export default function Map({
     }
   };
 
-  // Mount the map once, 2D by default (pitch/bearing 0, no 3D terrain).
+  // Mount the map once. Camera starts from initialViewState (parsed from the
+  // URL by App -- 2026-07-25 feedback: a shared link should reproduce the
+  // same view) falling back to Povo/2D if not provided.
   useEffect(() => {
     if (!mapContainerRef.current) return;
 
+    const ivs = initialViewState || {};
     const map = new maplibregl.Map({
       container: mapContainerRef.current,
       style: buildMapStyleDefinition(mapStyle),
-      center: [11.155, 46.066], // Povo, Trento
-      zoom: 14,
-      pitch: 0,
-      bearing: 0,
+      center: [ivs.lon ?? 11.155, ivs.lat ?? 46.066], // Povo, Trento
+      zoom: ivs.zoom ?? 14,
+      pitch: ivs.pitch ?? 0,
+      bearing: ivs.bearing ?? 0,
       maxPitch: 75,
       antialias: true
     });
@@ -298,12 +309,18 @@ export default function Map({
             map.setMinZoom(Math.max(0, cam.zoom - ZOOM_OUT_LEVELS_BEYOND_BOUNDARY));
           }
 
-          // Pad the boundary bbox by its own width/height on every side (a
-          // generous 3x-area buffer) so panning stays smooth even at the
-          // zoomed-out limit above, while never allowing the boundary itself
-          // to leave the viewport entirely.
-          const lngPad = (maxLng - minLng) || 0.01;
-          const latPad = (maxLat - minLat) || 0.01;
+          // Pad the boundary bbox by a modest 20% of its own width/height on
+          // every side -- enough for comfortable panning around the edges.
+          // NOTE: maxBounds constrains where the *camera* can go, not whether
+          // the boundary polygon itself stays on screen -- at high zoom the
+          // viewport covers far less ground than the padded bounds, so a
+          // large pad (an earlier 100%-per-side version) let the map wander
+          // to unrelated neighbourhoods (confirmed while testing: panning
+          // repeatedly reached Gardolo/Meano, several km from Povo). Keeping
+          // the pad small is what actually keeps the boundary "always
+          // visible" in practice.
+          const lngPad = (maxLng - minLng) * 0.2 || 0.005;
+          const latPad = (maxLat - minLat) * 0.2 || 0.005;
           map.setMaxBounds([
             [minLng - lngPad, minLat - latPad],
             [maxLng + lngPad, maxLat + latPad]
@@ -348,6 +365,41 @@ export default function Map({
 
           if (onSelectHex) onSelectHex(props);
         }
+      });
+
+      // Restore the hexagon selected in a shared link (h3=... in the URL)
+      // once the grid source has actually loaded its data, since it's a
+      // remote GeoJSON source resolved asynchronously after 'load' fires.
+      if (initialSelectedHexId) {
+        const trySelectInitialHex = () => {
+          if (!map.isSourceLoaded('povo-grid-src')) return;
+          const matches = map.querySourceFeatures('povo-grid-src', {
+            filter: ['==', ['get', 'h3_id'], initialSelectedHexId]
+          });
+          if (matches.length > 0) {
+            const feature = matches[0];
+            selectedFeatureId = feature.id;
+            map.setFeatureState({ source: 'povo-grid-src', id: selectedFeatureId }, { selected: true });
+            if (onSelectHex) onSelectHex(feature.properties);
+          }
+          map.off('sourcedata', trySelectInitialHex);
+        };
+        map.on('sourcedata', trySelectInitialHex);
+      }
+
+      // Report the settled camera back up to App on every pan/zoom/rotate/
+      // pitch (MapLibre fires 'moveend' for all of these), so the URL can
+      // stay in sync with whatever's actually on screen.
+      map.on('moveend', () => {
+        if (!onViewStateChangeRef.current) return;
+        const center = map.getCenter();
+        onViewStateChangeRef.current({
+          lat: center.lat,
+          lon: center.lng,
+          zoom: map.getZoom(),
+          bearing: map.getBearing(),
+          pitch: map.getPitch()
+        });
       });
 
       // Click on background map deselects the hexagon.
@@ -454,12 +506,21 @@ export default function Map({
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !loaded) return;
+
+    // Skip forcing the pitch/bearing preset the very first time this runs
+    // after mount -- that first run just applies whatever showTerrain came
+    // from the URL, and the camera's exact pitch/bearing was already set at
+    // construction time (initialViewState). Only an explicit later toggle
+    // (the sidebar checkbox) should ease to the fixed 3D/2D preset angles.
+    const isInitial = !didInitTerrainRef.current;
+    didInitTerrainRef.current = true;
+
     if (showTerrain) {
       map.setTerrain({ source: 'aws-terrain', exaggeration: 1.3 });
-      map.easeTo({ pitch: 50, bearing: -10, duration: 800 });
+      if (!isInitial) map.easeTo({ pitch: 50, bearing: -10, duration: 800 });
     } else {
       map.setTerrain(null);
-      map.easeTo({ pitch: 0, bearing: 0, duration: 800 });
+      if (!isInitial) map.easeTo({ pitch: 0, bearing: 0, duration: 800 });
     }
   }, [showTerrain, loaded]);
 

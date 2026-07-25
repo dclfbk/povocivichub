@@ -4,11 +4,16 @@ import Sidebar from './components/Sidebar';
 import AboutModal from './components/AboutModal';
 import CategoryTablesModal from './components/CategoryTablesModal';
 import { Menu, X, Layers } from 'lucide-react';
-import { ALL_POI_CATEGORIES, DEFAULT_MAP_STYLE } from './config/mapConfig';
+import { parseUrlState, buildUrlSearch } from './utils/urlState';
 
 const INTRO_SEEN_KEY = 'povoCivicHub_introSeen';
 
 export default function App() {
+  // Parsed once on first render -- everything visible on screen (camera,
+  // layers, background, selected hexagon) is seeded from the URL so a
+  // shared link reproduces the exact same view (2026-07-25 feedback).
+  const [initialUrlState] = useState(() => parseUrlState());
+
   const [selectedHex, setSelectedHex] = useState(null);
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   // Auto-opens the intro/methodology dialog on a visitor's first-ever visit
@@ -23,13 +28,24 @@ export default function App() {
   const [isTablesOpen, setIsTablesOpen] = useState(false);
   const [flyToTarget, setFlyToTarget] = useState(null);
 
-  // Layers are off by default; map starts in 2D.
-  const [showGrid, setShowGrid] = useState(false);
-  const [poiViewMode, setPoiViewMode] = useState('none'); // 'none' | 'icons' | 'heatmap'
-  const [showTerrain, setShowTerrain] = useState(false);
-  const [gridMetric, setGridMetric] = useState('dominant');
-  const [activePoiCategories, setActivePoiCategories] = useState(ALL_POI_CATEGORIES);
-  const [mapStyle, setMapStyle] = useState(DEFAULT_MAP_STYLE);
+  // Layers default to whatever the URL says, falling back to off/2D.
+  const [showGrid, setShowGrid] = useState(initialUrlState.showGrid);
+  const [poiViewMode, setPoiViewMode] = useState(initialUrlState.poiViewMode); // 'none' | 'icons' | 'heatmap'
+  const [showTerrain, setShowTerrain] = useState(initialUrlState.showTerrain);
+  const [gridMetric, setGridMetric] = useState(initialUrlState.gridMetric);
+  const [activePoiCategories, setActivePoiCategories] = useState(initialUrlState.activePoiCategories);
+  const [mapStyle, setMapStyle] = useState(initialUrlState.mapStyle);
+
+  // Current camera -- initialized from the URL, kept in sync afterwards via
+  // Map's onViewStateChange (fired on every 'moveend', which in MapLibre
+  // covers pan/zoom/rotate/pitch alike).
+  const [viewState, setViewState] = useState(() => ({
+    lat: initialUrlState.lat,
+    lon: initialUrlState.lon,
+    zoom: initialUrlState.zoom,
+    bearing: initialUrlState.bearing,
+    pitch: initialUrlState.pitch
+  }));
 
   // Loaded once for JS-side use (draw-tool point-in-polygon stats, the PoI
   // tables modal) -- separate from the copy MapLibre loads for rendering.
@@ -46,6 +62,23 @@ export default function App() {
       .then(setPoisData)
       .catch((err) => console.error('Failed to load povo_pois.json', err));
   }, []);
+
+  // Keep the URL in sync with everything visible on screen, so copying the
+  // address bar reproduces the same view. replaceState (not pushState) so
+  // panning/toggling layers doesn't spam the browser's back-button history.
+  useEffect(() => {
+    const qs = buildUrlSearch({
+      ...viewState,
+      showTerrain,
+      poiViewMode,
+      showGrid,
+      gridMetric,
+      activePoiCategories,
+      mapStyle,
+      selectedHexId: (selectedHex && selectedHex.h3_id) || null
+    });
+    window.history.replaceState(null, '', `${window.location.pathname}?${qs}`);
+  }, [viewState, showTerrain, poiViewMode, showGrid, gridMetric, activePoiCategories, mapStyle, selectedHex]);
 
   const handleTogglePoiCategory = (category, isActive) => {
     setActivePoiCategories((prev) =>
@@ -146,6 +179,9 @@ export default function App() {
           clearDrawSignal={clearDrawSignal}
           mapStyle={mapStyle}
           flyToTarget={flyToTarget}
+          initialViewState={viewState}
+          initialSelectedHexId={initialUrlState.selectedHexId}
+          onViewStateChange={setViewState}
         />
 
         {/* Floating Top Badge Info */}

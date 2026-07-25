@@ -90,6 +90,23 @@ DEDUP_NAME_THRESHOLD = 80
 # Ray Oldenburg (1989), Eric Klinenberg (2018), Jane Jacobs (1961) category weights.
 W_CAT = {'cross_civic': 1.0, 'residenti': 0.8, 'occasionali': 0.6, 'pendolari': 0.4}
 
+# Sub-types that function as shared/third-place infrastructure regardless of
+# which sociological category they happen to be bucketed into -- a "campo da
+# calcio ad accesso pubblico lo possono usare tutti" (2026-07-25 feedback).
+# This generalizes the old cross_civic-only cross-feed (park/garden/square/
+# community_centre/public_bookcase/drinking_water/social_facility/
+# association/ngo -- cross_civic's own sub-types) to also cover sport and
+# leisure facilities that live under residenti/pendolari/occasionali but are
+# just as usable by every other community: pitches, sports halls/centres,
+# fitness stations, climbing crags, playgrounds, picnic sites, nature
+# reserves, amphitheatres, museums, libraries.
+PUBLIC_INTEREST_SUB_TYPES = {
+    'park', 'garden', 'square', 'community_centre', 'public_bookcase', 'drinking_water',
+    'social_facility', 'association', 'ngo',
+    'pitch', 'sports_centre', 'sports_hall', 'fitness_station', 'climbing', 'playground',
+    'picnic_site', 'nature_reserve', 'amphitheatre', 'museum', 'library'
+}
+
 # Fields whose fill-rate makes up the ICC's Q_data (data quality) component.
 KEY_QUALITY_FIELDS = ['orari_apertura', 'contatti', 'image_url', 'accessibilita_disabili']
 
@@ -143,7 +160,7 @@ def fetch_osm_graph_and_pois(gdf_wgs84):
         'railway': ['station', 'halt'],
         'place': ['square'],
         'historic': ['fort', 'castle', 'monument', 'memorial', 'archaeological_site', 'ruins', 'trench'],
-        'office': ['research', 'educational_institution', 'association', 'ngo'],
+        'office': ['research', 'educational_institution', 'association', 'ngo', 'it'],
         # 'stop_position' nodes duplicate the bus_stop/platform representation of
         # the same physical stop and are routing-only infra, not shown on the map.
         'public_transport': ['platform']
@@ -246,6 +263,9 @@ ICON_MAP = {
     ('shop', 'copyshop'): 'copyshop',
     ('office', 'association'): 'association',
     ('office', 'ngo'): 'association',
+    ('office', 'research'): 'college',
+    ('office', 'educational_institution'): 'college',
+    ('office', 'it'): 'office_it',
 }
 
 
@@ -343,6 +363,21 @@ AMENITY_TYPE_LABELS_IT = {
     'market': 'Mercato Settimanale',
     'historic': 'Stoi Militari',
     'sports_centre': 'Centro Sportivo',
+    'bank': 'Banca',
+    'climbing': "Falesia d'Arrampicata",
+    'fitness_station': 'Area Fitness',
+    'footway': 'Percorso Pedonale',
+    'kindergarten': "Asilo Nido / Scuola dell'Infanzia",
+    'platform': 'Fermata Bus',
+    'post_office': 'Ufficio Postale',
+    'school': 'Scuola',
+    'sports_hall': 'Palestra',
+    'recycling': 'Isola Ecologica',
+    'playground': 'Parco Giochi',
+    'information': 'Punto Informativo',
+    'it': 'Azienda ICT',
+    'research': 'Ufficio di Ricerca',
+    'educational_institution': 'Istituto Formativo',
 }
 
 
@@ -376,6 +411,25 @@ def format_pitch_label(sport):
     return f'Campo da {it_name}'
 
 
+# `tourism=guest_house` alone doesn't distinguish an actual farm-stay
+# ("agriturismo", tagged with a further `guest_house=agritourism` sub-tag)
+# from a plain B&B -- without reading this sub-tag every guest_house feature
+# was mislabeled "Agriturismo" regardless (2026-07-25 feedback: e.g. "B&B Le
+# Ziette" isn't a farm-stay but was showing up as one).
+GUEST_HOUSE_LABELS_IT = {
+    'agritourism': 'Agriturismo',
+    'bed_and_breakfast': 'Bed & Breakfast',
+    'homestay': 'Affittacamere',
+    'chalet': 'Chalet',
+    'hostel': 'Ostello',
+}
+
+
+def format_guest_house_label(guest_house_type):
+    """Italian label for a `tourism=guest_house` feature, refined by its `guest_house=*` sub-tag."""
+    return GUEST_HOUSE_LABELS_IT.get(guest_house_type, 'Affittacamere / Guest House')
+
+
 OPENING_HOURS_DAY_MAP = {'Mo': 'Lun', 'Tu': 'Mar', 'We': 'Mer', 'Th': 'Gio', 'Fr': 'Ven', 'Sa': 'Sab', 'Su': 'Dom'}
 
 
@@ -387,6 +441,23 @@ def normalize_opening_hours(raw):
     for en, it in OPENING_HOURS_DAY_MAP.items():
         text = re.sub(rf'\b{en}\b', it, text)
     return text.replace(';', ' · ').strip()
+
+
+# OSM `access=*` values that mean "not open to the general public" (2026-07-25
+# feedback: a PoI's sociological category shouldn't be the only signal --
+# e.g. a publicly-accessible football pitch is useful to every community, not
+# just the one its category happens to bucket it into). Anything else,
+# including no `access` tag at all, is treated as public per the same
+# feedback ("se non c'è assumi public").
+RESTRICTED_ACCESS_VALUES = {'private', 'no', 'customers', 'customers_only'}
+
+
+def compute_accesso_pubblico(access_raw):
+    """True unless OSM's `access` tag explicitly restricts entry (see RESTRICTED_ACCESS_VALUES)."""
+    value = str(access_raw).strip().lower()
+    if value in ('', 'nan', 'none'):
+        return True
+    return value not in RESTRICTED_ACCESS_VALUES
 
 
 def classify_and_transform_pois(raw_pois_utm, named_routes_buffer=None):
@@ -402,7 +473,7 @@ def classify_and_transform_pois(raw_pois_utm, named_routes_buffer=None):
         'id', 'name', 'category', 'sub_type', 'osm_tag', 'icon_name', 'amenity_type',
         'social_function', 'image_url', 'indirizzo', 'orari_apertura', 'contatti',
         'sito_web', 'accessibilita_disabili', 'source', 'wikidata_id', 'wikipedia_title',
-        'geometry'
+        'accesso_pubblico', 'geometry'
     ]
     if len(raw_pois_utm) == 0:
         empty_gdf_utm = gpd.GeoDataFrame(columns=empty_cols, crs=TARGET_CRS)
@@ -438,6 +509,8 @@ def classify_and_transform_pois(raw_pois_utm, named_routes_buffer=None):
         wikidata = str(row.get('wikidata', ''))
         wikipedia = str(row.get('wikipedia', ''))
         opening_hours = str(row.get('opening_hours', ''))
+        guest_house_type = str(row.get('guest_house', ''))
+        accesso_pubblico = compute_accesso_pubblico(row.get('access', ''))
 
         name = str(row.get('name', ''))
         if name == 'nan':
@@ -465,22 +538,28 @@ def classify_and_transform_pois(raw_pois_utm, named_routes_buffer=None):
                        (f'leisure={leisure}' if leisure != 'nan' else
                         (f'place={place}' if place != 'nan' else f'office={office}')))
 
-        # 2. Pendolari (Campus UniTN/FBK, biblioteche, mense, TPL, copisterie)
+        # 2. Pendolari (Campus UniTN/FBK, biblioteche, mense, TPL, copisterie,
+        #    uffici/aziende ICT -- office=it, come le altre sedi di ricerca)
         elif (amenity in ['university', 'research_institute', 'library', 'canteen'] or
               shop == 'copyshop' or
               highway == 'bus_stop' or
               railway in ['station', 'halt'] or
               public_transport == 'platform' or
-              office in ['research', 'educational_institution']):
+              office in ['research', 'educational_institution', 'it']):
             category = 'pendolari'
+            # NOTE: `office` was previously missing from this fallback chain,
+            # so an office-only POI (no amenity/shop/highway/railway/
+            # public_transport) would end up with sub_type/osm_tag == 'nan'.
             sub_type = (amenity if amenity != 'nan' else
                         (shop if shop != 'nan' else
                          (highway if highway != 'nan' else
-                          (railway if railway != 'nan' else public_transport))))
+                          (railway if railway != 'nan' else
+                           (public_transport if public_transport != 'nan' else office)))))
             osm_tag = (f'amenity={amenity}' if amenity != 'nan' else
                        (f'shop={shop}' if shop != 'nan' else
                         (f'highway={highway}' if highway != 'nan' else
-                         (f'railway={railway}' if railway != 'nan' else f'public_transport={public_transport}'))))
+                         (f'railway={railway}' if railway != 'nan' else
+                          (f'public_transport={public_transport}' if public_transport != 'nan' else f'office={office}')))))
 
         # 3. Occasionali (forti/castelli, monumenti/trincee, teatri/anfiteatri, musei/
         #    attrazioni, falesie, bivacchi, sentieri, punti panoramici, picnic, ristorazione)
@@ -509,7 +588,9 @@ def classify_and_transform_pois(raw_pois_utm, named_routes_buffer=None):
                                       sport, office, shop, public_transport)
 
         # "Campo da <sport>" instead of the raw OSM word "pitch" (2026-07-25 feedback).
-        amenity_type = format_pitch_label(sport) if sub_type == 'pitch' else format_amenity_type(sub_type)
+        amenity_type = (format_pitch_label(sport) if sub_type == 'pitch' else
+                         (format_guest_house_label(guest_house_type) if sub_type == 'guest_house' else
+                          format_amenity_type(sub_type)))
 
         rec_meta = {
             'id': str(idx[1]) if isinstance(idx, tuple) else str(idx),
@@ -528,7 +609,8 @@ def classify_and_transform_pois(raw_pois_utm, named_routes_buffer=None):
             'accessibilita_disabili': '',
             'source': 'osm',
             'wikidata_id': wikidata if wikidata != 'nan' else '',
-            'wikipedia_title': wikipedia if wikipedia != 'nan' else ''
+            'wikipedia_title': wikipedia if wikipedia != 'nan' else '',
+            'accesso_pubblico': accesso_pubblico
         }
 
         rec_utm = rec_meta.copy()
@@ -691,6 +773,9 @@ def load_local_dataset(path):
             'source': 'locale',
             'wikidata_id': '',
             'wikipedia_title': '',
+            # The circoscrizione dataset carries no access-restriction field --
+            # default to public, same rule as an OSM POI with no `access` tag.
+            'accesso_pubblico': True,
             'geometry': geom
         })
 
@@ -757,6 +842,9 @@ def deduplicate_and_merge(gdf_local_utm, gdf_local_wgs84, gdf_osm_utm, gdf_osm_w
                 fused['osm_tag'] = osm_row['osm_tag']
                 fused['icon_name'] = osm_row['icon_name']
                 fused['source'] = 'locale+osm'
+                # OSM carries the real `access` tag; the local dataset only ever
+                # defaults to True, so OSM's value is the more informative one.
+                fused['accesso_pubblico'] = osm_row.get('accesso_pubblico', True)
                 for field in ('image_url', 'orari_apertura', 'wikidata_id', 'wikipedia_title'):
                     if not fused.get(field):
                         fused[field] = osm_row.get(field, '')
@@ -821,6 +909,7 @@ MANUAL_POIS = [
         'source': 'manuale',
         'wikidata_id': '',
         'wikipedia_title': '',
+        'accesso_pubblico': True,
         'lon': 11.1782,
         'lat': 46.0625
     }
@@ -1237,11 +1326,29 @@ def calculate_scores_and_mixite(gdf_hex_utm, G_utm, gdf_pois_utm, gtfs_stops):
     """
     print("--> Calculating weighted hexagon scores and Mixité Index with massive POIs...")
 
+    # Places of worship and anything not openly accessible (access=private/no/
+    # customers) don't represent a neighbourhood service available to the
+    # general population, so they're excluded from the indicator calculation
+    # entirely (2026-07-25 feedback) -- they still show up on the map/table,
+    # just don't count toward res_score/comm_score/occa_score/mix_index.
+    excluded_mask = (gdf_pois_utm['sub_type'] == 'place_of_worship') | (gdf_pois_utm['accesso_pubblico'] == False)  # noqa: E712
+    gdf_indic = gdf_pois_utm[~excluded_mask]
+    print(f"    PoI esclusi dal calcolo indicatori (luoghi di culto o accesso non pubblico): {excluded_mask.sum()}")
+
     # Filter POIs by category
-    gdf_res = gdf_pois_utm[gdf_pois_utm['category'] == 'residenti']
-    gdf_comm = gdf_pois_utm[gdf_pois_utm['category'] == 'pendolari']
-    gdf_occa = gdf_pois_utm[gdf_pois_utm['category'] == 'occasionali']
-    gdf_civic = gdf_pois_utm[gdf_pois_utm['category'] == 'cross_civic']
+    gdf_res = gdf_indic[gdf_indic['category'] == 'residenti']
+    gdf_comm = gdf_indic[gdf_indic['category'] == 'pendolari']
+    gdf_occa = gdf_indic[gdf_indic['category'] == 'occasionali']
+
+    # Shared/third-place PoIs (see PUBLIC_INTEREST_SUB_TYPES) cross-feed every
+    # axis they don't already belong to at a reduced weight -- a category
+    # alone doesn't capture that e.g. a public football pitch (residenti)
+    # also interests pendolari/occasionali, so this dimension is layered on
+    # top of, not instead of, the category split above.
+    gdf_shared = gdf_indic[gdf_indic['sub_type'].isin(PUBLIC_INTEREST_SUB_TYPES)]
+    gdf_shared_for_res = gdf_shared[gdf_shared['category'] != 'residenti']
+    gdf_shared_for_comm = gdf_shared[gdf_shared['category'] != 'pendolari']
+    gdf_shared_for_occa = gdf_shared[gdf_shared['category'] != 'occasionali']
 
     def compute_raw_poi_score(hex_geom, pois_gdf):
         if len(pois_gdf) == 0:
@@ -1262,16 +1369,19 @@ def calculate_scores_and_mixite(gdf_hex_utm, G_utm, gdf_pois_utm, gtfs_stops):
     raw_res_poi = np.array([compute_raw_poi_score(r.geometry, gdf_res) for _, r in gdf_hex_utm.iterrows()])
     raw_comm_poi = np.array([compute_raw_poi_score(r.geometry, gdf_comm) for _, r in gdf_hex_utm.iterrows()])
     raw_occa_poi = np.array([compute_raw_poi_score(r.geometry, gdf_occa) for _, r in gdf_hex_utm.iterrows()])
-    raw_civic_poi = np.array([compute_raw_poi_score(r.geometry, gdf_civic) for _, r in gdf_hex_utm.iterrows()])
+    raw_shared_res = np.array([compute_raw_poi_score(r.geometry, gdf_shared_for_res) for _, r in gdf_hex_utm.iterrows()])
+    raw_shared_comm = np.array([compute_raw_poi_score(r.geometry, gdf_shared_for_comm) for _, r in gdf_hex_utm.iterrows()])
+    raw_shared_occa = np.array([compute_raw_poi_score(r.geometry, gdf_shared_for_occa) for _, r in gdf_hex_utm.iterrows()])
 
     # GTFS walking accessibility
     peak_transit, offpeak_transit = calculate_gtfs_accessibility(gdf_hex_utm, G_utm, gtfs_stops)
 
-    # Combine scores
-    # cross_civic adds to res and occa to enhance civic third place mixing
-    res_combined = raw_res_poi + (0.5 * raw_civic_poi) + offpeak_transit
-    comm_combined = raw_comm_poi + peak_transit
-    occa_combined = raw_occa_poi + (0.5 * raw_civic_poi) + offpeak_transit
+    # Combine scores: each axis's own-category PoIs count fully, plus a
+    # reduced (0.5x) contribution from every shared/third-place PoI that
+    # belongs to a *different* category -- see PUBLIC_INTEREST_SUB_TYPES.
+    res_combined = raw_res_poi + (0.5 * raw_shared_res) + offpeak_transit
+    comm_combined = raw_comm_poi + (0.5 * raw_shared_comm) + peak_transit
+    occa_combined = raw_occa_poi + (0.5 * raw_shared_occa) + offpeak_transit
 
     def normalize(arr):
         min_val, max_val = arr.min(), arr.max()

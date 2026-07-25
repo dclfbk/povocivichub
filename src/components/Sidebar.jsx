@@ -229,6 +229,40 @@ export default function Sidebar({
                     <InfoButton title={cfg.label}>{cfg.info}</InfoButton>
                   </div>
                 ))}
+
+                {/* Legend for the currently-selected hex metric -- kept right
+                    next to the metric picker (2026-07-25 feedback: it used to
+                    sit at the very bottom of the sidebar, past several other
+                    sections, so it went effectively unnoticed). */}
+                <div className="glass-card rounded-xl p-3 space-y-2 border border-slate-800 mt-2">
+                  <div className="text-[11px] font-semibold text-slate-300 flex items-center justify-between gap-2">
+                    <span className="truncate">Legenda &bull; {GRID_METRICS[gridMetric].label}</span>
+                    <InfoButton title={GRID_METRICS[gridMetric].label}>{GRID_METRICS[gridMetric].info}</InfoButton>
+                  </div>
+                  {gridMetric === 'dominant' ? (
+                    <div className="grid grid-cols-2 gap-1.5 pt-1">
+                      {ALL_POI_CATEGORIES.map((cat) => (
+                        <div key={cat} className="flex items-center gap-1.5 text-[10px] text-slate-300">
+                          <span className="w-3 h-3 rounded shrink-0" style={{ backgroundColor: CATEGORY_STYLES[cat].color }} />
+                          <span className="truncate">{CATEGORY_STYLES[cat].label}</span>
+                        </div>
+                      ))}
+                      <div className="flex items-center gap-1.5 text-[10px] text-slate-300 col-span-2">
+                        <span className="w-3 h-3 rounded shrink-0" style={{ backgroundColor: MIXED_AREA_COLOR }} />
+                        <span>Area Mista (2+ categorie in equilibrio)</span>
+                      </div>
+                    </div>
+                  ) : (
+                    <>
+                      <div className="h-3 w-full rounded-full" style={{ background: gridMetricGradientCss(gridMetric) }} />
+                      <div className="flex justify-between text-[10px] text-slate-400 font-mono">
+                        <span>0.0 Basso</span>
+                        <span>0.5 Medio</span>
+                        <span>1.0 Alto</span>
+                      </div>
+                    </>
+                  )}
+                </div>
               </div>
             )}
           </div>
@@ -420,37 +454,6 @@ export default function Sidebar({
               </div>
             </div>
           </div>
-        </section>
-
-        {/* Legend */}
-        <section className="glass-card rounded-xl p-4 space-y-2 border border-slate-800">
-          <div className="text-xs font-semibold text-slate-300 flex items-center justify-between gap-2">
-            <span className="truncate">Legenda &bull; {GRID_METRICS[gridMetric].label}</span>
-            <InfoButton title={GRID_METRICS[gridMetric].label}>{GRID_METRICS[gridMetric].info}</InfoButton>
-          </div>
-          {gridMetric === 'dominant' ? (
-            <div className="grid grid-cols-2 gap-1.5 pt-1">
-              {ALL_POI_CATEGORIES.map((cat) => (
-                <div key={cat} className="flex items-center gap-1.5 text-[10px] text-slate-300">
-                  <span className="w-3 h-3 rounded shrink-0" style={{ backgroundColor: CATEGORY_STYLES[cat].color }} />
-                  <span className="truncate">{CATEGORY_STYLES[cat].label}</span>
-                </div>
-              ))}
-              <div className="flex items-center gap-1.5 text-[10px] text-slate-300 col-span-2">
-                <span className="w-3 h-3 rounded shrink-0" style={{ backgroundColor: MIXED_AREA_COLOR }} />
-                <span>Area Mista (2+ categorie in equilibrio)</span>
-              </div>
-            </div>
-          ) : (
-            <>
-              <div className="h-3 w-full rounded-full" style={{ background: gridMetricGradientCss(gridMetric) }} />
-              <div className="flex justify-between text-[10px] text-slate-400 font-mono">
-                <span>0.0 Basso</span>
-                <span>0.5 Medio</span>
-                <span>1.0 Alto</span>
-              </div>
-            </>
-          )}
         </section>
       </div>
 
