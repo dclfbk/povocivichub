@@ -6,7 +6,7 @@
 
 ---
 
-## 📌 Cos'è Povo Civic Hub?
+## Cos'è Povo Civic Hub?
 
 **Povo Civic Hub** è una piattaforma WebGIS interattiva creata per analizzare, mappare e comprendere la complessità territoriale della circoscrizione di Povo (Trento). 
 
@@ -17,7 +17,7 @@ A differenza delle tradizionali mappe turistiche o di navigazione, il progetto a
 
 ---
 
-## 📚 Riferimenti Scientifici e Bibliografia Esatta
+## Riferimenti Scientifici e Bibliografia Esatta
 
 Il progettos si base su metriche e classificazione dei punti di interesse (PoI) su cinque pilastri teorici e metodologici:
 
@@ -44,7 +44,7 @@ Applicazione dell'Entropia di Shannon su celle esagonali per calcolare l'indice 
 
 ---
 
-## 🛠️ Architettura Tecnica
+## Architettura Tecnica
 
 Il progetto adotta un'architettura disaccoppiata e ad alte prestazioni:
 
