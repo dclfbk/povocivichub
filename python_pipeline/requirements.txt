@@ -6,3 +6,5 @@ networkx
 shapely
 scipy
 numpy
+rapidfuzz
+requests

@@ -1,56 +1,49 @@
 """
-Povo Civic Hub - Geographic Data Analysis Pipeline (Exhaustive POI & GTFS Edition)
+Povo Civic Hub - Geographic Data Analysis Pipeline (ICC Edition)
 
-1. ESTRAZIONE MASSIVA POI DA OSM:
-   - Downloads both Nodes and Polygons from OSM using exhaustive tag dictionary:
-     amenity (incl. parking, theatre, arts_centre, bar), shop (incl. copyshop, beauty,
-     hairdresser, deli), tourism (incl. museum, artwork, chalet, camp_site,
-     wilderness_hut), leisure (incl. amphitheatre), sport=climbing, highway=bus_stop,
-     railway=station/halt, place=square, historic (fort, castle, monument, memorial,
-     archaeological_site, ruins, trench), office (research, educational_institution,
-     association, ngo).
-   - Calculates centroids in EPSG:25832 for all polygon POIs.
+1. ESTRAZIONE OSM AMPLIATA:
+   - Downloads Nodes and Polygons (converted to centroids) via OSMnx/Overpass:
+     amenity, shop, tourism, leisure, sport=climbing, highway=bus_stop,
+     railway=station/halt, place=square, historic, office, public_transport=platform.
 
-2. INIEZIONE MANUALE POI SPECIALI:
-   - Aggiunge al DataFrame due elementi del territorio assenti/incompleti su OSM
-     (Mercato Zonale del Martedì in Piazza Manci, Stoi del Chegul sul Monte Celva)
-     con coordinate, categoria, icona e metadati curati a mano (vedi MANUAL_POIS).
+2. DATASET LOCALE (Circoscrizione di Povo):
+   - Loads raw_data/dati_circoscrizione.geojson, drops the exact duplicate
+     features present in the source export (each POI appears twice), and maps
+     its Italian schema onto the pipeline's snake_case fields (indirizzo,
+     orari_apertura, contatti, sito_web, accessibilita_disabili, ...).
 
-3. CLASSIFICAZIONE SOCIOLOGICA DEI POI:
-   - 'residenti': neighborhood services, schools, pharmacies, groceries, playgrounds,
-     estetica/parrucchieri, rosticcerie.
-   - 'pendolari': UniTN/FBK campus, libraries, canteens, parking, copisterie, TPL
-     stops/station.
-   - 'occasionali': forts, castles, monuments/ruins/trenches, theatres/amphitheatres,
-     museums, attractions, falesie (sport=climbing), bivacchi (wilderness_hut), trail
-     access, viewpoints, picnic areas, hotels/guest houses, pubs/bars/restaurants.
-   - 'cross_civic': VERDE URBANO & SERVIZI CIVICI (public parks/gardens, public_bookcase,
-     squares, civic centres, drinking_water, benches, associazioni/ONG, mercati).
-   Each POI also gets:
-   - `icon_name` for MapLibre rendering (castle, theater, museum, attraction, restaurant,
-     cafe, viewpoint, library, college, bus, park, drinking_water, bench, hotel,
-     monument, ruins, information, climbing, association, copyshop, market, historic,
-     marker fallback).
-   - `amenity_type`: human-readable OSM sub-type label.
-   - `social_function`: sociological rationale for the category (Oldenburg's Third
-     Place, Klinenberg/Jacobs neighborhood infrastructure, academic flow hub, or
-     eco-recreational attractor).
-   - `image_url`: reference photo (populated for the manually curated POIs; empty
-     for bulk OSM extractions, left for the caller to backfill with real photography).
+3. DEDUPLICAZIONE E FUSIONE LOCALE <-> OSM:
+   - Matches local POIs to OSM features within 25m using RapidFuzz name
+     similarity (> 80%). Matches are fused (local hyper-local fields + OSM
+     geometry/tags); unmatched records on either side are kept standalone.
 
-4. RICALCOLO GRIGLIA H3 CON POI MASSIVI E GTFS:
-   - Calculates density and proximity (weighted with DTM slope and Tobler hiking travel times)
-     for each POI category and GTFS passages, including the manually injected POIs.
-   - Computes res_score, comm_score, occa_score (normalized 0-1) and Shannon Entropy mix_index.
+4. ARRICCHIMENTO (Wikidata):
+   - For POIs carrying an OSM `wikidata` tag with missing photo/website,
+     queries the Wikidata API for P18 (image) and P856 (official website).
+     Scoped to tagged features only (no geographic-proximity search: too slow
+     and unreliable to run as part of a repeatable build).
+   - Normalizes the OSM `opening_hours` tag into a human-readable string.
 
-5. EXPORT FILE IN public/data/ (TUTTI IN EPSG:4326):
-   - public/data/povo_boundary.json
-   - public/data/povo_grid.json
-   - public/data/povo_pois.json
+5. CLASSIFICAZIONE SOCIOLOGICA E INDICE DI CLASSE CIVICA (ICC):
+   - 'cross_civic' (W=1.0, Oldenburg Third Places), 'residenti' (W=0.8,
+     Klinenberg neighborhood infrastructure), 'occasionali' (W=0.6, outdoor/
+     historic/leisure), 'pendolari' (W=0.4, academic/commuter flow hubs).
+   - ICC = (0.40*W_cat + 0.25*A_bus + 0.15*P_park + 0.20*Q_data) * 100, where
+     A_bus/P_park are network-distance decay factors (pedestrian graph, via
+     the same boundary-clipped graph already fetched -- no redundant second
+     download) and Q_data is the share of key fields populated.
+
+6. RICALCOLO GRIGLIA H3 E MIXITE:
+   - Same Shannon-entropy mix_index/res_score/comm_score/occa_score as before,
+     now computed over the unified, deduplicated, enriched POI set.
+
+7. EXPORT:
+   - public/data/povo_boundary.json, povo_grid.json, povo_pois.json
+   - public/data/report_elaborazione.md (coverage, enrichment, ICC, anomalies)
 """
 
 import os
-import json
+import re
 import math
 import zipfile
 import numpy as np
@@ -62,19 +55,32 @@ import rasterio
 import h3
 import networkx as nx
 import osmnx as ox
+import requests
+from rapidfuzz import fuzz
 
 # Paths
 BOUNDARY_INPUT = "raw_data/povo_boundary.geojson"
 DTM_INPUT = "raw_data/dtm_povo.tif"
 GTFS_URBANO_INPUT = "raw_data/google_transit_urbano_tte.zip"
 GTFS_EXTRAURBANO_INPUT = "raw_data/google_transit_extraurbano_tte.zip"
+LOCAL_DATASET_INPUT = "raw_data/dati_circoscrizione.geojson"
 
 GRID_OUTPUT = "public/data/povo_grid.json"
 BOUNDARY_OUTPUT = "public/data/povo_boundary.json"
 POIS_OUTPUT = "public/data/povo_pois.json"
+REPORT_OUTPUT = "public/data/report_elaborazione.md"
 
 TARGET_CRS = "EPSG:25832"  # UTM 32N (meters)
 WGS84_CRS = "EPSG:4326"
+
+DEDUP_RADIUS_M = 25
+DEDUP_NAME_THRESHOLD = 80
+
+# Ray Oldenburg (1989), Eric Klinenberg (2018), Jane Jacobs (1961) category weights.
+W_CAT = {'cross_civic': 1.0, 'residenti': 0.8, 'occasionali': 0.6, 'pendolari': 0.4}
+
+# Fields whose fill-rate makes up the ICC's Q_data (data quality) component.
+KEY_QUALITY_FIELDS = ['orari_apertura', 'contatti', 'image_url', 'accessibilita_disabili']
 
 
 def load_boundary():
@@ -83,7 +89,7 @@ def load_boundary():
     gdf_boundary = gpd.read_file(BOUNDARY_INPUT)
     if gdf_boundary.crs is None:
         gdf_boundary.set_crs(WGS84_CRS, inplace=True)
-    
+
     gdf_wgs84 = gdf_boundary.to_crs(WGS84_CRS)
     gdf_utm = gdf_boundary.to_crs(TARGET_CRS)
     return gdf_wgs84, gdf_utm
@@ -122,7 +128,10 @@ def fetch_osm_graph_and_pois(gdf_wgs84):
         'railway': ['station', 'halt'],
         'place': ['square'],
         'historic': ['fort', 'castle', 'monument', 'memorial', 'archaeological_site', 'ruins', 'trench'],
-        'office': ['research', 'educational_institution', 'association', 'ngo']
+        'office': ['research', 'educational_institution', 'association', 'ngo'],
+        # 'stop_position' nodes duplicate the bus_stop/platform representation of
+        # the same physical stop and are routing-only infra, not shown on the map.
+        'public_transport': ['platform']
     }
 
     try:
@@ -172,14 +181,14 @@ ICON_MAP = {
     ('tourism', 'chalet'): 'hotel',
     ('tourism', 'camp_site'): 'hotel',
     ('tourism', 'alpine_hut'): 'hotel',
+    ('tourism', 'wilderness_hut'): 'hotel',
     ('leisure', 'amphitheatre'): 'theater',
     ('leisure', 'park'): 'park',
     ('leisure', 'garden'): 'park',
     ('highway', 'bus_stop'): 'bus',
     ('railway', 'station'): 'bus',
     ('railway', 'halt'): 'bus',
-    ('tourism', 'wilderness_hut'): 'hotel',
-    ('historic', 'trench'): 'ruins',
+    ('public_transport', 'platform'): 'bus',
     ('sport', 'climbing'): 'climbing',
     ('shop', 'copyshop'): 'copyshop',
     ('office', 'association'): 'association',
@@ -187,12 +196,14 @@ ICON_MAP = {
 }
 
 
-def assign_icon_name(historic, amenity, tourism, leisure, highway, railway, sport='nan', office='nan', shop='nan'):
+def assign_icon_name(historic, amenity, tourism, leisure, highway, railway,
+                      sport='nan', office='nan', shop='nan', public_transport='nan'):
     """Pick a MapLibre icon name for a POI from its OSM tags, with a 'marker' fallback."""
     for key, value in [
         ('historic', historic), ('amenity', amenity), ('tourism', tourism),
         ('sport', sport), ('office', office), ('shop', shop),
-        ('leisure', leisure), ('highway', highway), ('railway', railway)
+        ('leisure', leisure), ('highway', highway), ('railway', railway),
+        ('public_transport', public_transport)
     ]:
         if value != 'nan' and (key, value) in ICON_MAP:
             return ICON_MAP[(key, value)]
@@ -227,19 +238,35 @@ def format_amenity_type(sub_type):
     return sub_type.replace('_', ' ').title()
 
 
+OPENING_HOURS_DAY_MAP = {'Mo': 'Lun', 'Tu': 'Mar', 'We': 'Mer', 'Th': 'Gio', 'Fr': 'Ven', 'Sa': 'Sab', 'Su': 'Dom'}
+
+
+def normalize_opening_hours(raw):
+    """Lightly normalize an OSM `opening_hours` tag into an Italian-readable string."""
+    if not raw or raw == 'nan':
+        return ''
+    text = raw
+    for en, it in OPENING_HOURS_DAY_MAP.items():
+        text = re.sub(rf'\b{en}\b', it, text)
+    return text.replace(';', ' · ').strip()
+
+
 def classify_and_transform_pois(raw_pois_utm):
     """
     Transform polygon POIs to centroids in EPSG:25832, assign category, name, sub_type,
-    osm_tag, icon_name, and return GeoDataFrames in EPSG:25832 and EPSG:4326.
+    osm_tag, icon_name, sociological/ICC metadata, and return GeoDataFrames in
+    EPSG:25832 and EPSG:4326.
     """
     print("--> Classifying POIs and converting polygon geometries to centroids...")
+    empty_cols = [
+        'id', 'name', 'category', 'sub_type', 'osm_tag', 'icon_name', 'amenity_type',
+        'social_function', 'image_url', 'indirizzo', 'orari_apertura', 'contatti',
+        'sito_web', 'accessibilita_disabili', 'source', 'wikidata_id', 'wikipedia_title',
+        'geometry'
+    ]
     if len(raw_pois_utm) == 0:
-        cols = [
-            'id', 'name', 'category', 'sub_type', 'osm_tag', 'icon_name',
-            'amenity_type', 'social_function', 'image_url', 'geometry'
-        ]
-        empty_gdf_utm = gpd.GeoDataFrame(columns=cols, crs=TARGET_CRS)
-        empty_gdf_wgs84 = gpd.GeoDataFrame(columns=cols, crs=WGS84_CRS)
+        empty_gdf_utm = gpd.GeoDataFrame(columns=empty_cols, crs=TARGET_CRS)
+        empty_gdf_wgs84 = gpd.GeoDataFrame(columns=empty_cols, crs=WGS84_CRS)
         return empty_gdf_utm, empty_gdf_wgs84
 
     # Convert polygon/multipolygon geometries to centroids in metric UTM 32N
@@ -266,6 +293,10 @@ def classify_and_transform_pois(raw_pois_utm):
         place = str(row.get('place', ''))
         historic = str(row.get('historic', ''))
         sport = str(row.get('sport', ''))
+        public_transport = str(row.get('public_transport', ''))
+        wikidata = str(row.get('wikidata', ''))
+        wikipedia = str(row.get('wikipedia', ''))
+        opening_hours = str(row.get('opening_hours', ''))
 
         name = str(row.get('name', ''))
         if name == 'nan':
@@ -290,14 +321,17 @@ def classify_and_transform_pois(raw_pois_utm):
               shop == 'copyshop' or
               highway == 'bus_stop' or
               railway in ['station', 'halt'] or
+              public_transport == 'platform' or
               office in ['research', 'educational_institution']):
             category = 'pendolari'
             sub_type = (amenity if amenity != 'nan' else
                         (shop if shop != 'nan' else
-                         (highway if highway != 'nan' else railway)))
+                         (highway if highway != 'nan' else
+                          (railway if railway != 'nan' else public_transport))))
             osm_tag = (f'amenity={amenity}' if amenity != 'nan' else
                        (f'shop={shop}' if shop != 'nan' else
-                        (f'highway={highway}' if highway != 'nan' else f'railway={railway}')))
+                        (f'highway={highway}' if highway != 'nan' else
+                         (f'railway={railway}' if railway != 'nan' else f'public_transport={public_transport}'))))
 
         # 3. Occasionali (forti/castelli, monumenti/trincee, teatri/anfiteatri, musei/
         #    attrazioni, falesie, bivacchi, sentieri, punti panoramici, picnic, ristorazione)
@@ -322,7 +356,8 @@ def classify_and_transform_pois(raw_pois_utm):
             sub_type = amenity if amenity != 'nan' else (shop if shop != 'nan' else leisure)
             osm_tag = f'amenity={amenity}' if amenity != 'nan' else (f'shop={shop}' if shop != 'nan' else f'leisure={leisure}')
 
-        icon_name = assign_icon_name(historic, amenity, tourism, leisure, highway, railway, sport, office, shop)
+        icon_name = assign_icon_name(historic, amenity, tourism, leisure, highway, railway,
+                                      sport, office, shop, public_transport)
 
         rec_meta = {
             'id': str(idx[1]) if isinstance(idx, tuple) else str(idx),
@@ -333,7 +368,15 @@ def classify_and_transform_pois(raw_pois_utm):
             'icon_name': icon_name,
             'amenity_type': format_amenity_type(sub_type),
             'social_function': SOCIAL_FUNCTION_BY_CATEGORY[category],
-            'image_url': ''
+            'image_url': '',
+            'indirizzo': '',
+            'orari_apertura': normalize_opening_hours(opening_hours),
+            'contatti': '',
+            'sito_web': '',
+            'accessibilita_disabili': '',
+            'source': 'osm',
+            'wikidata_id': wikidata if wikidata != 'nan' else '',
+            'wikipedia_title': wikipedia if wikipedia != 'nan' else ''
         }
 
         rec_utm = rec_meta.copy()
@@ -348,29 +391,262 @@ def classify_and_transform_pois(raw_pois_utm):
     gdf_pois_wgs84 = gpd.GeoDataFrame(poi_records_wgs84, crs=WGS84_CRS)
 
     counts = gdf_pois_utm['category'].value_counts().to_dict()
-    print("    POIs categorized:", counts)
+    print("    OSM POIs categorized:", counts)
     return gdf_pois_utm, gdf_pois_wgs84
 
 
-# Key territorial POIs with no (or incomplete) OSM presence, curated by hand so they
-# still appear in the map, PoI list, and H3 scoring alongside the OSM-derived ones.
+# --- Local dataset (Circoscrizione di Povo) ---------------------------------
+
+DAY_COLUMNS = ['lunedi', 'martedi', 'mercoledi', 'giovedi', 'venerdi', 'sabato', 'domenica']
+DAY_LABELS = {
+    'lunedi': 'Lun', 'martedi': 'Mar', 'mercoledi': 'Mer', 'giovedi': 'Gio',
+    'venerdi': 'Ven', 'sabato': 'Sab', 'domenica': 'Dom'
+}
+
+# (substring found in the POI name, lowercased) -> sociological category.
+# Checked before the per-`servizio`-bucket default below.
+LOCAL_CATEGORY_KEYWORDS = [
+    ('fontana', 'cross_civic'),
+    ('bookcrossing', 'cross_civic'),
+    ('mercat', 'cross_civic'),  # mercato, mercatino
+    ('associazion', 'cross_civic'),
+    ('centro civico', 'cross_civic'),
+    ('casa sociale', 'cross_civic'),
+    ('sala multiuso', 'cross_civic'),
+    ('copisteria', 'pendolari'),
+    ('cartocopisteria', 'pendolari'),
+    ('biblioteca', 'pendolari'),
+    ('scuola', 'residenti'),
+    ('farmacia', 'residenti'),
+    ('ufficio postale', 'residenti'),
+    ('banca', 'residenti'),
+    ('cooperativa', 'residenti'),
+    ('officina', 'residenti'),
+    ('estetic', 'residenti'),
+    ('prelievi', 'residenti'),
+    ('fototessere', 'residenti'),
+    ('vigili del fuoco', 'residenti'),
+    ('pane', 'residenti'),
+    ('agritur', 'occasionali'),
+    ('bar ', 'occasionali'),
+    ('pizzeria', 'occasionali'),
+    ('pizza ', 'occasionali'),
+    ('gelateria', 'occasionali'),
+    ('anfiteatro', 'occasionali'),
+    ('sala video', 'occasionali'),
+    ('monumento', 'occasionali'),
+    ('lapide', 'occasionali'),
+    ('forte ', 'occasionali'),
+]
+
+# Fallback when no keyword above matches the POI name, keyed by the source's
+# own `servizio` bucket.
+SERVIZIO_DEFAULT_CATEGORY = {
+    'Servizi e attività economiche': 'residenti',
+    'Ristorazione e agriturismi': 'occasionali',
+    'Cultura e tempo libero': 'cross_civic',
+    'Luoghi/monumenti di interesse storico/artistico e fontane': 'occasionali',
+    'Associazioni e gruppi': 'cross_civic',
+}
+
+
+def classify_local_poi(servizio, nome):
+    nome_low = (nome or '').lower()
+    for keyword, category in LOCAL_CATEGORY_KEYWORDS:
+        if keyword in nome_low:
+            return category
+    return SERVIZIO_DEFAULT_CATEGORY.get(servizio, 'residenti')
+
+
+def _clean(value):
+    """Normalize a raw local-dataset cell: strip, treat '-' / None / NaN as empty."""
+    text = '' if value is None else str(value).strip()
+    return '' if text in ('-', 'nan', 'None') else text
+
+
+def build_orari_apertura(row):
+    """Build a human-readable weekly schedule string from the day-of-week columns."""
+    periodo = _clean(row.get('periodo_apertura', ''))
+    day_parts = []
+    for day in DAY_COLUMNS:
+        val = _clean(row.get(day, ''))
+        if val:
+            day_parts.append(f"{DAY_LABELS[day]}: {val}")
+
+    if day_parts:
+        return ' · '.join(day_parts)
+    if periodo:
+        return periodo
+    return _clean(row.get('accesso_temporale', ''))
+
+
+def load_local_dataset(path):
+    """
+    Load the Circoscrizione di Povo's hyper-local POI dataset, drop the exact
+    duplicate features present in the source export, and map its Italian schema
+    onto snake_case fields uniform with the rest of the pipeline.
+    """
+    print("--> Loading local circoscrizione dataset from", path)
+    empty_stats = {'n_raw': 0, 'n_deduped_internal': 0, 'n_final': 0}
+    if not os.path.exists(path):
+        print("    Local dataset not found, skipping.")
+        empty = gpd.GeoDataFrame(columns=['id', 'name', 'category', 'geometry'], crs=WGS84_CRS)
+        return empty.to_crs(TARGET_CRS), empty, empty_stats
+
+    gdf_raw = gpd.read_file(path)
+    if gdf_raw.crs is None:
+        gdf_raw.set_crs(WGS84_CRS, inplace=True)
+    n_raw = len(gdf_raw)
+
+    # The source export contains exact duplicate features (same nome+indirizzo,
+    # identical properties) -- keep only the first occurrence of each.
+    dedup_key = gdf_raw['nome'].astype(str) + '||' + gdf_raw['indirizzo'].astype(str)
+    gdf_dedup = gdf_raw.loc[~dedup_key.duplicated(keep='first')].reset_index(drop=True)
+    n_deduped_internal = n_raw - len(gdf_dedup)
+
+    records_wgs84 = []
+    n_missing_geom = 0
+    for idx, row in gdf_dedup.iterrows():
+        geom = row.geometry
+        if geom is None or geom.is_empty:
+            n_missing_geom += 1
+            continue
+
+        nome = _clean(row.get('nome', ''))
+        servizio = _clean(row.get('servizio', ''))
+        category = classify_local_poi(servizio, nome)
+
+        referente = _clean(row.get('referente', ''))
+        contatti_raw = _clean(row.get('contatti', ''))
+        contatti = ' · '.join(p for p in (referente, contatti_raw) if p)
+
+        records_wgs84.append({
+            'id': f'locale_{idx}',
+            'name': nome,
+            'category': category,
+            'sub_type': servizio,
+            'osm_tag': f'locale={servizio}',
+            'icon_name': 'marker',  # refined if fused with a matching OSM feature
+            'amenity_type': _clean(row.get('attore', '')),
+            'social_function': SOCIAL_FUNCTION_BY_CATEGORY[category],
+            'image_url': _clean(row.get('foto', '')),
+            'indirizzo': _clean(row.get('indirizzo', '')),
+            'orari_apertura': build_orari_apertura(row),
+            'contatti': contatti,
+            'sito_web': _clean(row.get('url', '')),
+            'accessibilita_disabili': _clean(row.get('disabili', '')),
+            'source': 'locale',
+            'wikidata_id': '',
+            'wikipedia_title': '',
+            'geometry': geom
+        })
+
+    gdf_wgs84 = gpd.GeoDataFrame(records_wgs84, crs=WGS84_CRS)
+    gdf_utm = gdf_wgs84.to_crs(TARGET_CRS)
+
+    counts = gdf_wgs84['category'].value_counts().to_dict() if len(gdf_wgs84) else {}
+    print(f"    Local dataset: {n_raw} raw features -> {len(gdf_dedup)} after removing "
+          f"{n_deduped_internal} exact duplicates ({n_missing_geom} dropped for missing geometry).")
+    print("    Local POIs categorized:", counts)
+
+    stats = {
+        'n_raw': n_raw,
+        'n_deduped_internal': n_deduped_internal,
+        'n_missing_geom': n_missing_geom,
+        'n_final': len(gdf_wgs84)
+    }
+    return gdf_utm, gdf_wgs84, stats
+
+
+def deduplicate_and_merge(gdf_local_utm, gdf_local_wgs84, gdf_osm_utm, gdf_osm_wgs84):
+    """
+    Match local circoscrizione POIs against OSM-derived POIs within 25m using
+    RapidFuzz name similarity (>80%). Matched pairs are fused (local hyper-local
+    fields win, OSM geometry/tags/icon are adopted); unmatched records on either
+    side are kept standalone.
+    """
+    print("--> Deduplicating and merging local dataset with OSM POIs...")
+
+    osm_used = set()
+    merged_utm, merged_wgs84 = [], []
+    n_matched = 0
+
+    osm_sindex = gdf_osm_utm.sindex if len(gdf_osm_utm) > 0 else None
+
+    for i in range(len(gdf_local_utm)):
+        local_row_utm = gdf_local_utm.iloc[i]
+        local_row_wgs84 = gdf_local_wgs84.iloc[i]
+        local_geom = local_row_utm.geometry
+
+        best_idx, best_score = None, 0
+        if osm_sindex is not None and local_geom is not None and not local_geom.is_empty:
+            candidate_idx = list(osm_sindex.intersection(local_geom.buffer(DEDUP_RADIUS_M).bounds))
+            for j in candidate_idx:
+                if j in osm_used:
+                    continue
+                osm_geom = gdf_osm_utm.iloc[j].geometry
+                if local_geom.distance(osm_geom) > DEDUP_RADIUS_M:
+                    continue
+                score = fuzz.token_sort_ratio(str(local_row_utm['name']).lower(), str(gdf_osm_utm.iloc[j]['name']).lower())
+                if score > DEDUP_NAME_THRESHOLD and score > best_score:
+                    best_score, best_idx = score, j
+
+        if best_idx is not None:
+            osm_used.add(best_idx)
+            n_matched += 1
+            osm_utm_row = gdf_osm_utm.iloc[best_idx]
+            osm_wgs84_row = gdf_osm_wgs84.iloc[best_idx]
+
+            fused_utm = local_row_utm.to_dict()
+            fused_wgs84 = local_row_wgs84.to_dict()
+            for fused, osm_row in ((fused_utm, osm_utm_row), (fused_wgs84, osm_wgs84_row)):
+                fused['geometry'] = osm_row.geometry
+                fused['osm_tag'] = osm_row['osm_tag']
+                fused['icon_name'] = osm_row['icon_name']
+                fused['source'] = 'locale+osm'
+                for field in ('image_url', 'orari_apertura', 'wikidata_id', 'wikipedia_title'):
+                    if not fused.get(field):
+                        fused[field] = osm_row.get(field, '')
+
+            merged_utm.append(fused_utm)
+            merged_wgs84.append(fused_wgs84)
+        else:
+            merged_utm.append(local_row_utm.to_dict())
+            merged_wgs84.append(local_row_wgs84.to_dict())
+
+    n_osm_standalone = 0
+    for j in range(len(gdf_osm_utm)):
+        if j not in osm_used:
+            merged_utm.append(gdf_osm_utm.iloc[j].to_dict())
+            merged_wgs84.append(gdf_osm_wgs84.iloc[j].to_dict())
+            n_osm_standalone += 1
+
+    gdf_merged_utm = gpd.GeoDataFrame(merged_utm, crs=TARGET_CRS)
+    gdf_merged_wgs84 = gpd.GeoDataFrame(merged_wgs84, crs=WGS84_CRS)
+
+    stats = {
+        'n_local': len(gdf_local_utm),
+        'n_osm': len(gdf_osm_utm),
+        'n_matched': n_matched,
+        'n_local_standalone': len(gdf_local_utm) - n_matched,
+        'n_osm_standalone': n_osm_standalone,
+        'n_final': len(gdf_merged_utm)
+    }
+    print(f"    Matched {n_matched} local POIs to OSM features "
+          f"(<= {DEDUP_RADIUS_M}m, name similarity > {DEDUP_NAME_THRESHOLD}%).")
+    print(f"    Merged dataset (pre-manual): {stats['n_final']} POIs "
+          f"({stats['n_local_standalone']} local-only, {n_osm_standalone} OSM-only, {n_matched} fused).")
+    return gdf_merged_utm, gdf_merged_wgs84, stats
+
+
+# --- Manually curated territorial POIs --------------------------------------
+
+# Key territorial POIs with no OSM presence AND no equivalent in the local
+# circoscrizione dataset. NOTE: the market in Piazza Manci previously injected
+# here by hand ("Mercato Zonale del Martedì") has been dropped -- the
+# circoscrizione dataset now supplies a more accurate, authoritative
+# "Mercato Settimanale" entry (correct Tue/Wed/Sat schedule) that supersedes it.
 MANUAL_POIS = [
-    {
-        'id': 'manual_mercato_povo',
-        'name': 'Mercato Zonale del Martedì',
-        'category': 'cross_civic',
-        'sub_type': 'market',
-        'osm_tag': 'manual=market',
-        'icon_name': 'market',
-        'amenity_type': 'Mercato Civico',
-        'social_function': (
-            "Infrastruttura sociale temporanea. Favorisce l'incontro intergenerazionale "
-            "tra residenti ed economia a km zero."
-        ),
-        'image_url': 'https://upload.wikimedia.org/wikipedia/commons/thumb/c/c8/Povo_piazza_Manci.jpg/640px-Povo_piazza_Manci.jpg',
-        'lon': 11.1565,
-        'lat': 46.0662
-    },
     {
         'id': 'manual_stoi_chegul',
         'name': 'Stoi del Chegul (Ricoveri Militari)',
@@ -384,6 +660,14 @@ MANUAL_POIS = [
             "la storia del fronte con il turismo sostenibile."
         ),
         'image_url': 'https://upload.wikimedia.org/wikipedia/commons/thumb/1/1a/Trento_-_Monte_Celva_-_Trottole_02.jpg/640px-Trento_-_Monte_Celva_-_Trottole_02.jpg',
+        'indirizzo': 'Monte Celva',
+        'orari_apertura': '',
+        'contatti': '',
+        'sito_web': '',
+        'accessibilita_disabili': '',
+        'source': 'manuale',
+        'wikidata_id': '',
+        'wikipedia_title': '',
         'lon': 11.1782,
         'lat': 46.0625
     }
@@ -403,6 +687,77 @@ def build_manual_pois():
     gdf_utm = gdf_wgs84.to_crs(TARGET_CRS)
     print(f"    Manual POIs injected: {len(gdf_wgs84)}")
     return gdf_utm, gdf_wgs84
+
+
+# --- Wikidata enrichment -----------------------------------------------------
+
+WIKIDATA_API = "https://www.wikidata.org/w/api.php"
+# Wikimedia's API etiquette rejects requests without a descriptive User-Agent
+# (returns 403) -- see https://meta.wikimedia.org/wiki/User-Agent_policy.
+WIKIDATA_HEADERS = {
+    'User-Agent': 'PovoCivicHub/1.0 (https://github.com/povocivichub; data pipeline for build_data.py)'
+}
+
+
+def fetch_wikidata_enrichment(qid):
+    """Fetch P18 (image) and P856 (official website) claims for a Wikidata QID."""
+    try:
+        resp = requests.get(WIKIDATA_API, params={
+            'action': 'wbgetentities', 'ids': qid, 'props': 'claims', 'format': 'json'
+        }, headers=WIKIDATA_HEADERS, timeout=6)
+        resp.raise_for_status()
+        claims = resp.json()['entities'].get(qid, {}).get('claims', {})
+
+        image_url = ''
+        if 'P18' in claims:
+            filename = claims['P18'][0]['mainsnak']['datavalue']['value']
+            image_url = f"https://commons.wikimedia.org/wiki/Special:FilePath/{filename.replace(' ', '_')}"
+
+        website = ''
+        if 'P856' in claims:
+            website = claims['P856'][0]['mainsnak']['datavalue']['value']
+
+        return image_url, website
+    except Exception:
+        return '', ''
+
+
+def enrich_missing_data(gdf_utm, gdf_wgs84):
+    """
+    For POIs carrying an OSM `wikidata` tag with still-missing photo/website,
+    query Wikidata. Scoped to tagged features only -- a full geographic-
+    proximity Commons/Wikidata search across every POI would be slow and
+    unreliable to run as part of a repeatable build.
+    """
+    print("--> Enriching missing photo/website data via Wikidata (wikidata-tagged POIs only)...")
+    n_candidates, n_photo, n_website = 0, 0, 0
+    cache = {}
+
+    for idx in gdf_utm.index:
+        qid = gdf_utm.at[idx, 'wikidata_id']
+        if not qid:
+            continue
+        needs_photo = not gdf_utm.at[idx, 'image_url']
+        needs_website = not gdf_utm.at[idx, 'sito_web']
+        if not (needs_photo or needs_website):
+            continue
+
+        n_candidates += 1
+        if qid not in cache:
+            cache[qid] = fetch_wikidata_enrichment(qid)
+        image_url, website = cache[qid]
+
+        if needs_photo and image_url:
+            gdf_utm.at[idx, 'image_url'] = image_url
+            gdf_wgs84.at[idx, 'image_url'] = image_url
+            n_photo += 1
+        if needs_website and website:
+            gdf_utm.at[idx, 'sito_web'] = website
+            gdf_wgs84.at[idx, 'sito_web'] = website
+            n_website += 1
+
+    print(f"    Wikidata candidates checked: {n_candidates} -> {n_photo} photos, {n_website} websites enriched.")
+    return gdf_utm, gdf_wgs84, {'n_candidates': n_candidates, 'n_photo': n_photo, 'n_website': n_website}
 
 
 def integrate_dtm_and_tobler(G_utm, dtm_path):
@@ -528,7 +883,7 @@ def generate_h3_grid(gdf_wgs84, gdf_utm, res=9):
     """Generate Uber H3 resolution 9 hexagon grid clipped to Povo boundary."""
     print(f"--> Generating Uber H3 grid (resolution {res})...")
     poly_wgs84 = gdf_wgs84.geometry.union_all()
-    
+
     geom_json = shapely.geometry.mapping(poly_wgs84)
     h3_shape = h3.geo_to_h3shape(geom_json)
     cells = h3.h3shape_to_cells(h3_shape, res=res)
@@ -587,6 +942,93 @@ def calculate_gtfs_accessibility(gdf_hex_utm, G_utm, gtfs_stops):
     offpeak_access = np.array([node_offpeak_supply.get(n, 0.0) for n in hex_nodes])
 
     return peak_access, offpeak_access
+
+
+def calculate_accessibility_distances(gdf_pois_utm, G_utm, raw_pois_utm):
+    """
+    Compute, for every POI, the shortest pedestrian-network distance (metres) to
+    the nearest bus/rail stop (d_bus_m) and to the nearest public parking
+    (d_park_m). Reuses the pedestrian graph already fetched for the boundary
+    area (no redundant second ox.graph_from_place download) and treats it as
+    undirected, since one-way tagging on footways doesn't meaningfully restrict
+    where a pedestrian can walk.
+    """
+    print("--> Calculating network accessibility distances to bus stops and parking...")
+    G_undirected = G_utm.to_undirected()
+
+    def nodes_for(mask):
+        if not isinstance(mask, pd.Series) or not mask.any():
+            return []
+        subset = raw_pois_utm[mask]
+        xs = [g.centroid.x for g in subset.geometry]
+        ys = [g.centroid.y for g in subset.geometry]
+        return list(ox.distance.nearest_nodes(G_utm, xs, ys))
+
+    highway_col = raw_pois_utm['highway'] if 'highway' in raw_pois_utm.columns else None
+    railway_col = raw_pois_utm['railway'] if 'railway' in raw_pois_utm.columns else None
+    pt_col = raw_pois_utm['public_transport'] if 'public_transport' in raw_pois_utm.columns else None
+    amenity_col = raw_pois_utm['amenity'] if 'amenity' in raw_pois_utm.columns else None
+
+    bus_mask = pd.Series(False, index=raw_pois_utm.index)
+    if highway_col is not None:
+        bus_mask |= (highway_col == 'bus_stop')
+    if railway_col is not None:
+        bus_mask |= railway_col.isin(['station', 'halt'])
+    if pt_col is not None:
+        bus_mask |= (pt_col == 'platform')
+
+    parking_mask = pd.Series(False, index=raw_pois_utm.index)
+    if amenity_col is not None:
+        parking_mask |= (amenity_col == 'parking')
+
+    bus_nodes = set(nodes_for(bus_mask))
+    parking_nodes = set(nodes_for(parking_mask))
+    print(f"    Accessibility sources: {len(bus_nodes)} bus/rail stop nodes, {len(parking_nodes)} parking nodes.")
+
+    dist_to_bus = nx.multi_source_dijkstra_path_length(G_undirected, bus_nodes, weight='length') if bus_nodes else {}
+    dist_to_park = nx.multi_source_dijkstra_path_length(G_undirected, parking_nodes, weight='length') if parking_nodes else {}
+
+    poi_xs = [g.x for g in gdf_pois_utm.geometry]
+    poi_ys = [g.y for g in gdf_pois_utm.geometry]
+    poi_nodes = ox.distance.nearest_nodes(G_utm, poi_xs, poi_ys)
+
+    FAR = 5000.0  # metres: fallback when unreachable within the extracted graph
+    gdf_pois_utm['d_bus_m'] = np.round([dist_to_bus.get(n, FAR) for n in poi_nodes], 1)
+    gdf_pois_utm['d_park_m'] = np.round([dist_to_park.get(n, FAR) for n in poi_nodes], 1)
+    return gdf_pois_utm
+
+
+def calculate_icc(gdf_pois_utm):
+    """
+    Compute the Indice di Classe Civica (ICC) per POI on a 0-100 scale:
+    ICC = (0.40*W_cat + 0.25*A_bus + 0.15*P_park + 0.20*Q_data) * 100
+    """
+    print("--> Calculating Indice di Classe Civica (ICC)...")
+
+    w_cat = gdf_pois_utm['category'].map(W_CAT).fillna(0.5)
+    a_bus = (1 - gdf_pois_utm['d_bus_m'] / 800.0).clip(lower=0, upper=1)
+    p_park = (1 - gdf_pois_utm['d_park_m'] / 1000.0).clip(lower=0, upper=1)
+
+    def field_filled(val):
+        s = str(val).strip()
+        return s not in ('', 'nan', '-', 'None')
+
+    q_data = gdf_pois_utm.apply(
+        lambda row: sum(field_filled(row.get(f, '')) for f in KEY_QUALITY_FIELDS) / len(KEY_QUALITY_FIELDS),
+        axis=1
+    )
+
+    icc = (0.40 * w_cat + 0.25 * a_bus + 0.15 * p_park + 0.20 * q_data) * 100
+
+    gdf_pois_utm['w_cat'] = np.round(w_cat, 3)
+    gdf_pois_utm['a_bus'] = np.round(a_bus, 3)
+    gdf_pois_utm['p_park'] = np.round(p_park, 3)
+    gdf_pois_utm['q_data'] = np.round(q_data, 3)
+    gdf_pois_utm['icc_score'] = np.round(icc, 1)
+
+    print("    ICC medio per categoria:")
+    print(gdf_pois_utm.groupby('category')['icc_score'].mean().round(1).to_string())
+    return gdf_pois_utm
 
 
 def calculate_scores_and_mixite(gdf_hex_utm, G_utm, gdf_pois_utm, gtfs_stops):
@@ -658,7 +1100,7 @@ def calculate_scores_and_mixite(gdf_hex_utm, G_utm, gdf_pois_utm, gtfs_stops):
             for p in [p_r, p_c, p_o]:
                 if p > 0:
                     h_val -= p * math.log(p)
-            
+
             mix_index.append(max(0.0, min(1.0, h_val / max_entropy)))
 
     gdf_hex_utm['res_score'] = np.round(norm_res, 4)
@@ -690,11 +1132,104 @@ def export_results(gdf_hex_utm, gdf_boundary_utm, gdf_pois_wgs84):
     print("--> All exports completed successfully!")
 
 
+def write_report(path, stats, gdf_pois_wgs84):
+    """Write a Markdown processing report: coverage, enrichment, ICC, anomalies."""
+    print("--> Writing processing report to", path)
+    local_stats = stats['local']
+    dedup_stats = stats['dedup']
+    enrich_stats = stats['enrich']
+    manual_count = stats['manual_count']
+    total_final = dedup_stats['n_final'] + manual_count
+
+    lines = []
+    lines.append("# Report di Elaborazione — Povo Civic Hub")
+    lines.append("")
+    lines.append("_Generato automaticamente da `python_pipeline/build_data.py`._")
+    lines.append("")
+
+    lines.append("## 1. Copertura dei PoI")
+    lines.append("")
+    lines.append(f"- PoI grezzi nel file locale (Circoscrizione di Povo): **{local_stats['n_raw']}**")
+    lines.append(f"- Duplicati esatti rimossi dal dataset locale: **{local_stats['n_deduped_internal']}**")
+    lines.append(f"- PoI locali dopo la deduplica interna: **{local_stats['n_final']}**")
+    lines.append(f"- PoI estratti da OpenStreetMap: **{dedup_stats['n_osm']}**")
+    lines.append(
+        f"- Corrispondenze locale ↔ OSM fuse (raggio {DEDUP_RADIUS_M}m, "
+        f"similarità nome > {DEDUP_NAME_THRESHOLD}%): **{dedup_stats['n_matched']}**"
+    )
+    lines.append(f"- PoI solo locali (nessun corrispondente OSM): **{dedup_stats['n_local_standalone']}**")
+    lines.append(f"- PoI solo OSM (nessun corrispondente locale): **{dedup_stats['n_osm_standalone']}**")
+    lines.append(f"- PoI iniettati manualmente (assenti da OSM e dal dataset locale): **{manual_count}**")
+    lines.append(f"- **Totale PoI finali nel dataset unificato: {total_final}**")
+    lines.append("")
+
+    lines.append("## 2. Arricchimento Dati (Wikidata)")
+    lines.append("")
+    lines.append(f"- PoI con tag `wikidata` verificati: **{enrich_stats['n_candidates']}**")
+    lines.append(f"- Foto recuperate automaticamente: **{enrich_stats['n_photo']}**")
+    lines.append(f"- Siti web recuperati automaticamente: **{enrich_stats['n_website']}**")
+    lines.append(
+        "- _Nota: l'arricchimento è limitato ai PoI con tag `wikidata` OSM espliciti. "
+        "Una ricerca per prossimità geografica su Wikidata/Commons per tutti i PoI non è "
+        "stata implementata: sarebbe troppo lenta e poco affidabile (falsi positivi) per "
+        "una pipeline eseguita ripetutamente._"
+    )
+    lines.append("")
+
+    lines.append("## 3. Qualità del Dato")
+    lines.append("")
+    for field in KEY_QUALITY_FIELDS:
+        filled = gdf_pois_wgs84[field].apply(lambda v: str(v).strip() not in ('', 'nan', '-', 'None')).sum()
+        lines.append(f"- `{field}` compilato: **{filled} / {len(gdf_pois_wgs84)}**")
+    lines.append("")
+
+    lines.append("## 4. Indice di Classe Civica (ICC) medio per categoria")
+    lines.append("")
+    lines.append("| Categoria | W_cat | ICC medio | N. PoI |")
+    lines.append("|---|---|---|---|")
+    for cat, w in W_CAT.items():
+        subset = gdf_pois_wgs84[gdf_pois_wgs84['category'] == cat]
+        mean_icc = subset['icc_score'].mean() if len(subset) else 0.0
+        lines.append(f"| {cat} | {w:.1f} | {mean_icc:.1f} | {len(subset)} |")
+    lines.append("")
+
+    lines.append("## 5. Anomalie Rilevate")
+    lines.append("")
+    no_geom = gdf_pois_wgs84[gdf_pois_wgs84.geometry.isna() | gdf_pois_wgs84.geometry.is_empty]
+    if len(no_geom) > 0:
+        lines.append(f"- **{len(no_geom)} PoI privi di coordinate valide** (esclusi dal dataset finale).")
+    else:
+        lines.append("- Nessun PoI privo di coordinate valide.")
+    lines.append(
+        f"- Il file locale conteneva {local_stats['n_raw']} feature per sole "
+        f"{local_stats['n_final']} entità reali (ogni PoI era duplicato esattamente 2 volte "
+        "nell'export sorgente, con proprietà identiche); tra i duplicati, alcuni presentavano "
+        "coordinate leggermente diverse tra le due copie (fino a ~400m in un caso, 'Pizza Rio') "
+        "— è stata mantenuta la prima occorrenza."
+    )
+    lines.append(
+        "- Il PoI manuale \"Mercato Zonale del Martedì\" (iniettato a mano in una versione "
+        "precedente della pipeline) è stato rimosso: il dataset locale fornisce ora un "
+        "\"Mercato Settimanale\" più accurato e autorevole (martedì/mercoledì/sabato mattina)."
+    )
+    lines.append("")
+
+    with open(path, 'w', encoding='utf-8') as f:
+        f.write('\n'.join(lines))
+    print("    Report written.")
+
+
 def main():
-    print("=== POVO CIVIC HUB - GEOGRAPHIC DATA ANALYSIS PIPELINE (EXHAUSTIVE EDITION) ===")
+    print("=== POVO CIVIC HUB - GEOGRAPHIC DATA ANALYSIS PIPELINE (ICC EDITION) ===")
     gdf_wgs84, gdf_utm = load_boundary()
     G_utm, raw_pois_utm = fetch_osm_graph_and_pois(gdf_wgs84)
-    gdf_pois_utm, gdf_pois_wgs84 = classify_and_transform_pois(raw_pois_utm)
+    gdf_osm_utm, gdf_osm_wgs84 = classify_and_transform_pois(raw_pois_utm)
+
+    gdf_local_utm, gdf_local_wgs84, local_stats = load_local_dataset(LOCAL_DATASET_INPUT)
+
+    gdf_pois_utm, gdf_pois_wgs84, dedup_stats = deduplicate_and_merge(
+        gdf_local_utm, gdf_local_wgs84, gdf_osm_utm, gdf_osm_wgs84
+    )
 
     manual_utm, manual_wgs84 = build_manual_pois()
     gdf_pois_utm = gpd.GeoDataFrame(
@@ -703,14 +1238,32 @@ def main():
     gdf_pois_wgs84 = gpd.GeoDataFrame(
         pd.concat([gdf_pois_wgs84, manual_wgs84], ignore_index=True), geometry='geometry', crs=WGS84_CRS
     )
-    counts = gdf_pois_utm['category'].value_counts().to_dict()
-    print("    POIs after manual injection:", counts)
+
+    gdf_pois_utm, gdf_pois_wgs84, enrich_stats = enrich_missing_data(gdf_pois_utm, gdf_pois_wgs84)
 
     G_utm = integrate_dtm_and_tobler(G_utm, DTM_INPUT)
     gtfs_stops = process_gtfs_feeds(gdf_utm)
+
+    gdf_pois_utm = calculate_accessibility_distances(gdf_pois_utm, G_utm, raw_pois_utm)
+    gdf_pois_wgs84['d_bus_m'] = gdf_pois_utm['d_bus_m'].values
+    gdf_pois_wgs84['d_park_m'] = gdf_pois_utm['d_park_m'].values
+
+    gdf_pois_utm = calculate_icc(gdf_pois_utm)
+    for col in ['w_cat', 'a_bus', 'p_park', 'q_data', 'icc_score']:
+        gdf_pois_wgs84[col] = gdf_pois_utm[col].values
+
     gdf_hex_utm = generate_h3_grid(gdf_wgs84, gdf_utm, res=9)
     gdf_hex_scored = calculate_scores_and_mixite(gdf_hex_utm, G_utm, gdf_pois_utm, gtfs_stops)
+
     export_results(gdf_hex_scored, gdf_utm, gdf_pois_wgs84)
+
+    write_report(REPORT_OUTPUT, {
+        'local': local_stats,
+        'dedup': dedup_stats,
+        'enrich': enrich_stats,
+        'manual_count': len(manual_utm)
+    }, gdf_pois_wgs84)
+
     print("=== PIPELINE EXECUTED SUCCESSFULLY ===")
 
 

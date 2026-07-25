@@ -11,6 +11,7 @@ cache/
 .cache/
 __pycache__/
 *.pyc
+python_pipeline/__pycache__/
 
 # Dipendenze Node.js e Python
 node_modules/
