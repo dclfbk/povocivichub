@@ -2,16 +2,14 @@ import React, { useEffect, useRef, useState } from 'react';
 import maplibregl from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import {
-  POPUP_CATEGORY_BADGES,
   buildFillColorExpression,
   buildClusterCategoryColorExpression,
   CLUSTER_CATEGORY_PROPERTIES,
   createPoiIconImage,
-  formatSubType,
   computePoiStatsInPolygon,
   buildMapStyleDefinition,
   computeBboxFromGeoJSON,
-  buildPlaceholderImageDataUri
+  buildPoiPopupHtml
 } from '../config/mapConfig';
 
 const EMPTY_FC = { type: 'FeatureCollection', features: [] };
@@ -36,7 +34,8 @@ export default function Map({
   drawMode,
   onDrawComplete,
   clearDrawSignal,
-  mapStyle
+  mapStyle,
+  flyToTarget
 }) {
   const mapContainerRef = useRef(null);
   const mapRef = useRef(null);
@@ -385,47 +384,10 @@ export default function Map({
         const feature = e.features[0];
         const props = feature.properties;
         const coords = feature.geometry.coordinates.slice();
-        const badge = POPUP_CATEGORY_BADGES[props.category] || { label: props.category, color: '#94a3b8' };
-        const serviceType = props.amenity_type || formatSubType(props.sub_type);
-        const hasSocialFunction = props.social_function && props.social_function.length > 0;
-        // Verified broken images are cleared to '' by the pipeline; missing
-        // ones never had one -- either way, fall back to a drawn placeholder
-        // instead of showing no photo / a broken-image icon.
-        const imageSrc = props.image_url && props.image_url.length > 0
-          ? props.image_url
-          : buildPlaceholderImageDataUri(props.icon_name);
 
         new maplibregl.Popup({ closeButton: true, offset: 12, maxWidth: '260px' })
           .setLngLat(coords)
-          .setHTML(`
-            <div style="font-family: Inter, sans-serif; width: 240px;">
-              <img src="${imageSrc}" alt=""
-                   style="width: 100%; height: 120px; object-fit: cover; display: block;" />
-              <div style="padding: 12px;">
-                <div style="font-weight: 700; font-size: 14px; color: #0f172a; line-height: 1.3;">
-                  ${props.name && props.name.length > 0 ? props.name : 'Punto di interesse'}
-                </div>
-                <span style="display: inline-block; margin-top: 6px; padding: 3px 9px; border-radius: 999px; font-size: 10px; font-weight: 700; color: #ffffff; background: ${badge.color};">
-                  ${badge.label}
-                </span>
-                ${serviceType ? `
-                  <div style="font-size: 11px; color: #64748b; margin-top: 6px; font-weight: 600;">
-                    ${serviceType}
-                  </div>
-                ` : ''}
-                ${hasSocialFunction ? `
-                  <div style="margin-top: 10px; padding-top: 8px; border-top: 1px solid #e2e8f0;">
-                    <div style="font-size: 10px; font-weight: 700; color: #6366f1; text-transform: uppercase; letter-spacing: 0.05em;">
-                      Funzione Civica e Sociale
-                    </div>
-                    <div style="font-size: 11px; color: #334155; margin-top: 4px; line-height: 1.4;">
-                      ${props.social_function}
-                    </div>
-                  </div>
-                ` : ''}
-              </div>
-            </div>
-          `)
+          .setHTML(buildPoiPopupHtml(props))
           .addTo(map);
       });
 
@@ -565,6 +527,26 @@ export default function Map({
     const src = map.getSource('draw-area-src');
     if (src) src.setData(EMPTY_FC);
   }, [clearDrawSignal, loaded]);
+
+  // Row click in the PoI table: fly to that PoI and open its popup, the same
+  // one shown when clicking its icon directly on the map.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !loaded || !flyToTarget) return;
+    const { lng, lat } = flyToTarget;
+    if (typeof lng !== 'number' || typeof lat !== 'number') return;
+
+    map.flyTo({ center: [lng, lat], zoom: Math.max(map.getZoom(), 17), duration: 1200 });
+
+    const openPopup = () => {
+      new maplibregl.Popup({ closeButton: true, offset: 12, maxWidth: '260px' })
+        .setLngLat([lng, lat])
+        .setHTML(buildPoiPopupHtml(flyToTarget))
+        .addTo(map);
+    };
+    map.once('moveend', openPopup);
+    return () => map.off('moveend', openPopup);
+  }, [flyToTarget, loaded]);
 
   return (
     <div className="relative w-full h-full">

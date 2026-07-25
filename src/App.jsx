@@ -6,11 +6,22 @@ import CategoryTablesModal from './components/CategoryTablesModal';
 import { Menu, X, Layers } from 'lucide-react';
 import { ALL_POI_CATEGORIES, DEFAULT_MAP_STYLE } from './config/mapConfig';
 
+const INTRO_SEEN_KEY = 'povoCivicHub_introSeen';
+
 export default function App() {
   const [selectedHex, setSelectedHex] = useState(null);
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
-  const [isAboutOpen, setIsAboutOpen] = useState(false);
+  // Auto-opens the intro/methodology dialog on a visitor's first-ever visit
+  // (2026-07-25 feedback: the project needs an initial explainer dialog).
+  const [isAboutOpen, setIsAboutOpen] = useState(() => {
+    try {
+      return !localStorage.getItem(INTRO_SEEN_KEY);
+    } catch {
+      return true;
+    }
+  });
   const [isTablesOpen, setIsTablesOpen] = useState(false);
+  const [flyToTarget, setFlyToTarget] = useState(null);
 
   // Layers are off by default; map starts in 2D.
   const [showGrid, setShowGrid] = useState(false);
@@ -60,6 +71,25 @@ export default function App() {
   const handleClearDrawnArea = () => {
     setDrawnAreaStats(null);
     setClearDrawSignal((n) => n + 1);
+  };
+
+  const handleCloseAbout = () => {
+    setIsAboutOpen(false);
+    try {
+      localStorage.setItem(INTRO_SEEN_KEY, '1');
+    } catch {
+      // localStorage unavailable (e.g. private browsing) -- the dialog will
+      // just auto-open again next visit, which is an acceptable fallback.
+    }
+  };
+
+  // Row click in the PoI table: close the table, switch to icon view so the
+  // point is actually visible, and fly the map to it (Map.jsx also opens its
+  // popup once centered).
+  const handleSelectPoiFromTable = (poi) => {
+    setIsTablesOpen(false);
+    setPoiViewMode('icons');
+    setFlyToTarget({ ...poi, _t: Date.now() });
   };
 
   return (
@@ -115,6 +145,7 @@ export default function App() {
           onDrawComplete={handleDrawComplete}
           clearDrawSignal={clearDrawSignal}
           mapStyle={mapStyle}
+          flyToTarget={flyToTarget}
         />
 
         {/* Floating Top Badge Info */}
@@ -133,8 +164,13 @@ export default function App() {
         )}
       </main>
 
-      <AboutModal isOpen={isAboutOpen} onClose={() => setIsAboutOpen(false)} />
-      <CategoryTablesModal isOpen={isTablesOpen} onClose={() => setIsTablesOpen(false)} poisData={poisData} />
+      <AboutModal isOpen={isAboutOpen} onClose={handleCloseAbout} />
+      <CategoryTablesModal
+        isOpen={isTablesOpen}
+        onClose={() => setIsTablesOpen(false)}
+        poisData={poisData}
+        onSelectPoi={handleSelectPoiFromTable}
+      />
     </div>
   );
 }

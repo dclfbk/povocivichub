@@ -157,25 +157,34 @@ export function buildHexSegments(selectedHex) {
 // expression and the sidebar legend gradient. `dominant` has no gradient
 // `stops` -- it's rendered as a categorical case expression (see
 // buildDominantCategoryExpression) with its own swatch-style legend.
+// Labels avoid jargon ("Mixité", "Mixing", "(R)/(P)/(O)") in favor of plain
+// Italian; `info` is the plain-language explanation shown by InfoButton
+// (2026-07-25 feedback: these terms aren't self-explanatory to a general
+// Italian-speaking audience).
 export const GRID_METRICS = {
   dominant: {
-    label: 'Vocazione Dominante & Aree Miste'
+    label: 'Vocazione Prevalente dell’Area',
+    info: 'Ogni esagono viene colorato in base alla categoria di servizi che prevale al suo interno (Residenti, Pendolari, Occasionali). Quando invece nessuna categoria prevale nettamente e l’area offre un buon equilibrio tra più funzioni, viene evidenziata con un colore distinto come "area mista".'
   },
   mix_index: {
-    label: 'Indice di Mixité (Entropia)',
-    stops: [[0.0, '#312e81'], [0.2, '#3b82f6'], [0.45, '#10b981'], [0.75, '#f59e0b'], [1.0, '#ec4899']]
+    label: 'Indice di Polifunzionalità',
+    stops: [[0.0, '#312e81'], [0.2, '#3b82f6'], [0.45, '#10b981'], [0.75, '#f59e0b'], [1.0, '#ec4899']],
+    info: 'Misura quanto un’area riesce a mescolare bene funzioni diverse — abitare, studiare/lavorare, tempo libero — invece di essere dedicata a una sola cosa. Va da 0 (l’area serve praticamente a una sola funzione) a 1 (le funzioni sono ben bilanciate tra loro). Un valore alto indica un quartiere vivo e polifunzionale.'
   },
   res_score: {
-    label: 'Punteggio Residenti (R)',
-    stops: [[0.0, '#0f172a'], [0.5, '#3b82f6'], [1.0, '#93c5fd']]
+    label: 'Presenza Servizi Residenziali',
+    stops: [[0.0, '#0f172a'], [0.5, '#3b82f6'], [1.0, '#93c5fd']],
+    info: 'Misura quanto quest’area è ricca di servizi di vicinato utili a chi ci abita (scuole, farmacie, negozi alimentari, ecc.), pesato anche in base a quanto sono vicini. Valore da 0 (pochi o lontani) a 1 (molti e vicini).'
   },
   comm_score: {
-    label: 'Punteggio Pendolari (P)',
-    stops: [[0.0, '#1c1917'], [0.5, '#f59e0b'], [1.0, '#fde68a']]
+    label: 'Presenza Flussi Pendolari',
+    stops: [[0.0, '#1c1917'], [0.5, '#f59e0b'], [1.0, '#fde68a']],
+    info: 'Misura la presenza di poli universitari, biblioteche, mense e fermate del trasporto pubblico — i luoghi frequentati da studenti e pendolari — combinata con la frequenza reale dei mezzi pubblici in quest’area.'
   },
   occa_score: {
-    label: 'Punteggio Occasionali (O)',
-    stops: [[0.0, '#1e1b2e'], [0.5, '#ec4899'], [1.0, '#fbcfe8']]
+    label: 'Presenza Attività Occasionali',
+    stops: [[0.0, '#1e1b2e'], [0.5, '#ec4899'], [1.0, '#fbcfe8']],
+    info: 'Misura la presenza di luoghi legati al tempo libero occasionale: sentieri, punti panoramici, aree picnic, ristoranti, agriturismi e siti storici.'
   }
 };
 
@@ -371,6 +380,48 @@ export function buildPlaceholderImageDataUri(iconName) {
     <text x="120" y="64" font-size="46" text-anchor="middle" dominant-baseline="middle">${emoji}</text>
   </svg>`;
   return `data:image/svg+xml,${encodeURIComponent(svg)}`;
+}
+
+// Builds the PoI detail popup's inner HTML from a feature's properties.
+// Shared between the map's direct-click handler and the PoI table's
+// "row click -> fly to it" flow, so both produce the identical rich popup.
+export function buildPoiPopupHtml(props) {
+  const badge = POPUP_CATEGORY_BADGES[props.category] || { label: props.category, color: '#94a3b8' };
+  const serviceType = props.amenity_type || formatSubType(props.sub_type);
+  const hasSocialFunction = props.social_function && props.social_function.length > 0;
+  const imageSrc = props.image_url && props.image_url.length > 0
+    ? props.image_url
+    : buildPlaceholderImageDataUri(props.icon_name);
+
+  return `
+    <div style="font-family: Inter, sans-serif; width: 240px;">
+      <img src="${imageSrc}" alt=""
+           style="width: 100%; height: 120px; object-fit: cover; display: block;" />
+      <div style="padding: 12px;">
+        <div style="font-weight: 700; font-size: 14px; color: #0f172a; line-height: 1.3;">
+          ${props.name && props.name.length > 0 ? props.name : 'Punto di interesse'}
+        </div>
+        <span style="display: inline-block; margin-top: 6px; padding: 3px 9px; border-radius: 999px; font-size: 10px; font-weight: 700; color: #ffffff; background: ${badge.color};">
+          ${badge.label}
+        </span>
+        ${serviceType ? `
+          <div style="font-size: 11px; color: #64748b; margin-top: 6px; font-weight: 600;">
+            ${serviceType}
+          </div>
+        ` : ''}
+        ${hasSocialFunction ? `
+          <div style="margin-top: 10px; padding-top: 8px; border-top: 1px solid #e2e8f0;">
+            <div style="font-size: 10px; font-weight: 700; color: #6366f1; text-transform: uppercase; letter-spacing: 0.05em;">
+              Funzione Civica e Sociale
+            </div>
+            <div style="font-size: 11px; color: #334155; margin-top: 4px; line-height: 1.4;">
+              ${props.social_function}
+            </div>
+          </div>
+        ` : ''}
+      </div>
+    </div>
+  `;
 }
 
 export function formatSubType(subType) {

@@ -1,5 +1,6 @@
 import React from 'react';
 import CategoryStackedBar from './CategoryStackedBar';
+import InfoButton from './InfoButton';
 import {
   MapPin,
   Layers,
@@ -9,7 +10,6 @@ import {
   Trees,
   Leaf,
   Activity,
-  Info,
   Sparkles,
   RotateCcw,
   Mountain,
@@ -64,12 +64,13 @@ export default function Sidebar({
 }) {
   const mixIndex = selectedHex ? parseFloat(selectedHex.mix_index || 0) : null;
 
-  // Determine Mixité Index Badge Color & Label
+  // Determine Polifunzionalità Index badge color & label (plain Italian,
+  // no "Mixité"/"Mixing" jargon -- 2026-07-25 feedback).
   const getMixLevel = (score) => {
     if (score === null) return { label: 'Media Generale', color: 'bg-indigo-500/20 text-indigo-300 border-indigo-500/30' };
-    if (score > 0.75) return { label: 'Elevato Mixing (Alta Polifunzionalità)', color: 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30' };
-    if (score > 0.45) return { label: 'Medio Mixing', color: 'bg-amber-500/20 text-amber-300 border-amber-500/30' };
-    return { label: 'Basso Mixing (Monoculturale)', color: 'bg-blue-500/20 text-blue-300 border-blue-500/30' };
+    if (score > 0.75) return { label: 'Alta Polifunzionalità', color: 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30' };
+    if (score > 0.45) return { label: 'Media Polifunzionalità', color: 'bg-amber-500/20 text-amber-300 border-amber-500/30' };
+    return { label: 'Bassa Polifunzionalità (Monofunzionale)', color: 'bg-blue-500/20 text-blue-300 border-blue-500/30' };
   };
 
   const mixLevel = getMixLevel(mixIndex);
@@ -87,7 +88,7 @@ export default function Sidebar({
               <h1 className="text-xl font-bold tracking-tight bg-clip-text text-transparent bg-gradient-to-r from-white via-indigo-100 to-indigo-300">
                 Povo Civic Hub
               </h1>
-              <p className="text-xs text-indigo-300/80 font-medium">Mappe di Co-presenza & Mixité</p>
+              <p className="text-xs text-indigo-300/80 font-medium">Mappe di Co-presenza & Polifunzionalità</p>
             </div>
           </div>
           <div className="flex items-center gap-1">
@@ -211,19 +212,22 @@ export default function Sidebar({
             {showGrid && (
               <div className="space-y-1.5 pl-1">
                 {Object.entries(GRID_METRICS).map(([key, cfg]) => (
-                  <label
+                  <div
                     key={key}
-                    className="flex items-center gap-2 text-[11px] px-2 py-1.5 rounded-lg border border-slate-800 bg-slate-900/60 cursor-pointer select-none"
+                    className="flex items-center gap-2 text-[11px] px-2 py-1.5 rounded-lg border border-slate-800 bg-slate-900/60"
                   >
-                    <input
-                      type="radio"
-                      name="gridMetric"
-                      className="w-3 h-3 accent-indigo-500 cursor-pointer"
-                      checked={gridMetric === key}
-                      onChange={() => onChangeGridMetric(key)}
-                    />
-                    <span className="text-slate-300">{cfg.label}</span>
-                  </label>
+                    <label className="flex items-center gap-2 flex-1 min-w-0 cursor-pointer select-none">
+                      <input
+                        type="radio"
+                        name="gridMetric"
+                        className="w-3 h-3 accent-indigo-500 cursor-pointer shrink-0"
+                        checked={gridMetric === key}
+                        onChange={() => onChangeGridMetric(key)}
+                      />
+                      <span className="text-slate-300 truncate">{cfg.label}</span>
+                    </label>
+                    <InfoButton title={cfg.label}>{cfg.info}</InfoButton>
+                  </div>
                 ))}
               </div>
             )}
@@ -260,10 +264,13 @@ export default function Sidebar({
             )}
           </div>
 
-          {/* Mixité Index Metric */}
+          {/* Polifunzionalità Index Metric */}
           <div className="flex items-baseline justify-between border-t border-slate-800 pt-3">
             <div>
-              <div className="text-xs text-slate-400">Indice di Mixité (Shannon)</div>
+              <div className="text-xs text-slate-400 flex items-center gap-1.5">
+                <span>{GRID_METRICS.mix_index.label}</span>
+                <InfoButton title={GRID_METRICS.mix_index.label}>{GRID_METRICS.mix_index.info}</InfoButton>
+              </div>
               <div className="text-3xl font-extrabold tracking-tight text-white mt-0.5">
                 {mixIndex !== null ? mixIndex.toFixed(4) : '0.6524'}
               </div>
@@ -417,9 +424,9 @@ export default function Sidebar({
 
         {/* Legend */}
         <section className="glass-card rounded-xl p-4 space-y-2 border border-slate-800">
-          <div className="text-xs font-semibold text-slate-300 flex items-center justify-between">
-            <span>Legenda &bull; {GRID_METRICS[gridMetric].label}</span>
-            <Info className="w-3.5 h-3.5 text-slate-400" />
+          <div className="text-xs font-semibold text-slate-300 flex items-center justify-between gap-2">
+            <span className="truncate">Legenda &bull; {GRID_METRICS[gridMetric].label}</span>
+            <InfoButton title={GRID_METRICS[gridMetric].label}>{GRID_METRICS[gridMetric].info}</InfoButton>
           </div>
           {gridMetric === 'dominant' ? (
             <div className="grid grid-cols-2 gap-1.5 pt-1">
