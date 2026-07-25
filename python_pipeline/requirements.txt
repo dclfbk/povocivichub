@@ -1,0 +1,8 @@
+osmnx
+geopandas
+rasterio
+h3
+networkx
+shapely
+scipy
+numpy
