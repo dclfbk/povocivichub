@@ -1,0 +1,31 @@
+# Raw geodata (large binaries, regenerate via python_pipeline/build_data.py
+# or fetch separately; keep out of git history)
+raw_data/*.tif
+raw_data/*.tif.aux.xml
+raw_data/*.zip
+
+# claude
+.claude/
+# Cartelle di Cache (Python / OSMnx / Vite)
+cache/
+.cache/
+__pycache__/
+*.pyc
+
+# Dipendenze Node.js e Python
+node_modules/
+venv/
+.venv/
+
+# File di Build prodotti da React
+dist/
+build/
+
+# Dati grezzi pesanti o temporanei (se non servono su GitHub)
+# raw_data/
+
+# OS e Editor
+.DS_Store
+.vscode/
+.idea/
+.claude/
