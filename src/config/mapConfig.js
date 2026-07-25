@@ -1,3 +1,4 @@
+import booleanPointInPolygon from '@turf/boolean-point-in-polygon';
 import { Home, Bus, Trees, BookOpen } from 'lucide-react';
 
 // Shared styling for POI categories, used by both the map (colors) and the
@@ -11,9 +12,155 @@ export const CATEGORY_STYLES = {
 
 export const ALL_POI_CATEGORIES = Object.keys(CATEGORY_STYLES);
 
+// Selectable background maps. The first 5 are complete OpenFreeMap vector
+// styles (fetched as a style.json URL); 'aerial' is a single raster XYZ
+// layer (2019 Trento orthophoto), not a full style, so Map.jsx builds a
+// minimal raster-only style object for it instead of passing the tile URL
+// straight to setStyle.
+export const MAP_STYLES = {
+  liberty: { label: 'Liberty', url: 'https://tiles.openfreemap.org/styles/liberty' },
+  positron: { label: 'Positron', url: 'https://tiles.openfreemap.org/styles/positron' },
+  bright: { label: 'Bright', url: 'https://tiles.openfreemap.org/styles/bright' },
+  dark: { label: 'Dark', url: 'https://tiles.openfreemap.org/styles/dark' },
+  fiord: { label: 'Fiord', url: 'https://tiles.openfreemap.org/styles/fiord' },
+  aerial: {
+    label: 'Ortofotocarta Trento 2019',
+    // The given tiles.openaerialmap.org URL 302-redirects to this exact
+    // titiler.hotosm.org endpoint (same COG file, verified stable across
+    // z/x/y). Using it directly avoids a real browser limitation: the
+    // openaerialmap.org redirect hop carries no Access-Control-Allow-Origin
+    // header, which fails MapLibre's fetch()-based raster tile loading with
+    // a CORS error even though the final destination allows it (confirmed
+    // in-browser: fetching the redirecting URL fails, fetching this one
+    // succeeds with `access-control-allow-origin: *`).
+    tiles: [
+      'https://titiler.hotosm.org/cog/tiles/WebMercatorQuad/{z}/{x}/{y}@1x' +
+      '?url=https://oin-hotosm-temp.s3.us-east-1.amazonaws.com/60770b0fb85cd80007a01414/0/60770b0fb85cd80007a01415.tif'
+    ]
+  }
+};
+export const DEFAULT_MAP_STYLE = 'liberty';
+
+export function buildMapStyleDefinition(styleKey) {
+  const cfg = MAP_STYLES[styleKey] || MAP_STYLES[DEFAULT_MAP_STYLE];
+  if (cfg.url) return cfg.url;
+  return {
+    version: 8,
+    sources: {
+      'aerial-raster-src': {
+        type: 'raster',
+        tiles: cfg.tiles,
+        tileSize: 256,
+        attribution: 'OpenAerialMap &bull; Provincia Autonoma di Trento (Ortofotocarta 2019)'
+      }
+    },
+    layers: [{ id: 'aerial-raster-layer', type: 'raster', source: 'aerial-raster-src' }]
+  };
+}
+
+// Flattens every coordinate out of a GeoJSON geometry/feature/FeatureCollection
+// into a [minLng, minLat, maxLng, maxLat] bbox. Used to compute the "fit the
+// whole Povo boundary" zoom level so the map's zoomed-out limit can be set
+// relative to it, without pulling in a full turf bbox module for one call.
+export function computeBboxFromGeoJSON(geojson) {
+  let minLng = Infinity, minLat = Infinity, maxLng = -Infinity, maxLat = -Infinity;
+
+  const visit = (coords) => {
+    if (typeof coords[0] === 'number') {
+      const [lng, lat] = coords;
+      if (lng < minLng) minLng = lng;
+      if (lat < minLat) minLat = lat;
+      if (lng > maxLng) maxLng = lng;
+      if (lat > maxLat) maxLat = lat;
+    } else {
+      coords.forEach(visit);
+    }
+  };
+
+  const features = geojson.type === 'FeatureCollection' ? geojson.features : [geojson];
+  features.forEach((f) => {
+    const geom = f.geometry || f;
+    if (geom && geom.coordinates) visit(geom.coordinates);
+  });
+
+  return [minLng, minLat, maxLng, maxLat];
+}
+
+// Counts PoIs (by category) whose point geometry falls inside a drawn
+// polygon, plus the average ICC score of whatever falls inside. Used by the
+// map's "draw an area" tool to compute live indicators for any shape the
+// user draws, the same way a selected H3 hexagon shows its own profile.
+export function computePoiStatsInPolygon(polygonGeom, poisGeoJSON) {
+  const counts = Object.fromEntries(ALL_POI_CATEGORIES.map((cat) => [cat, 0]));
+  let total = 0;
+  let iccSum = 0;
+  let iccCount = 0;
+
+  const features = (poisGeoJSON && poisGeoJSON.features) || [];
+  for (const feature of features) {
+    const geom = feature.geometry;
+    if (!geom || geom.type !== 'Point') continue;
+    if (!booleanPointInPolygon(geom.coordinates, polygonGeom)) continue;
+
+    const category = feature.properties && feature.properties.category;
+    if (category in counts) counts[category] += 1;
+    total += 1;
+
+    const icc = feature.properties && feature.properties.icc_score;
+    if (typeof icc === 'number') {
+      iccSum += icc;
+      iccCount += 1;
+    }
+  }
+
+  return { counts, total, avgIcc: iccCount > 0 ? iccSum / iccCount : null };
+}
+
+// Builds the {key, label, color, value, percentage} segments consumed by
+// CategoryStackedBar from a plain {category: count} map.
+export function buildCategorySegments(counts) {
+  const total = ALL_POI_CATEGORIES.reduce((sum, cat) => sum + (counts[cat] || 0), 0);
+  return ALL_POI_CATEGORIES.map((cat) => {
+    const value = counts[cat] || 0;
+    return {
+      key: cat,
+      label: CATEGORY_STYLES[cat].label,
+      color: CATEGORY_STYLES[cat].color,
+      value,
+      percentage: total > 0 ? (value / total) * 100 : 0
+    };
+  });
+}
+
+// Builds stacked-bar segments from a selected H3 hexagon's res_score/
+// comm_score/occa_score. Only 3 categories: the pipeline doesn't track a
+// separate per-hexagon civic score -- cross_civic PoIs feed into both the
+// residenti and occasionali hex scores instead (see calculate_scores_and_mixite
+// in build_data.py), so there's nothing meaningful to show as a 4th segment
+// here the way there is for a drawn area's raw PoI counts.
+const HEX_SEGMENT_CATEGORIES = ['residenti', 'pendolari', 'occasionali'];
+const HEX_SCORE_FIELD = { residenti: 'res_score', pendolari: 'comm_score', occasionali: 'occa_score' };
+
+export function buildHexSegments(selectedHex) {
+  const scores = HEX_SEGMENT_CATEGORIES.map((cat) => parseFloat(selectedHex?.[HEX_SCORE_FIELD[cat]] ?? 0) || 0);
+  const total = scores.reduce((a, b) => a + b, 0);
+  return HEX_SEGMENT_CATEGORIES.map((cat, i) => ({
+    key: cat,
+    label: CATEGORY_STYLES[cat].label,
+    color: CATEGORY_STYLES[cat].color,
+    value: scores[i],
+    percentage: total > 0 ? (scores[i] / total) * 100 : 0
+  }));
+}
+
 // Color ramps per grid metric, shared between the MapLibre fill-color
-// expression and the sidebar legend gradient.
+// expression and the sidebar legend gradient. `dominant` has no gradient
+// `stops` -- it's rendered as a categorical case expression (see
+// buildDominantCategoryExpression) with its own swatch-style legend.
 export const GRID_METRICS = {
+  dominant: {
+    label: 'Vocazione Dominante & Aree Miste'
+  },
   mix_index: {
     label: 'Indice di Mixité (Entropia)',
     stops: [[0.0, '#312e81'], [0.2, '#3b82f6'], [0.45, '#10b981'], [0.75, '#f59e0b'], [1.0, '#ec4899']]
@@ -32,26 +179,80 @@ export const GRID_METRICS = {
   }
 };
 
+// Threshold above which a hexagon's mix_index counts as genuinely "mixed"
+// (2+ categories in real balance) rather than dominated by one category.
+export const MIX_THRESHOLD = 0.65;
+// Distinct hue for mixed areas -- deliberately not blue/amber/pink/emerald
+// (already used by residenti/pendolari/occasionali/cross_civic) so it reads
+// as its own, fifth thing at a glance.
+export const MIXED_AREA_COLOR = '#22d3ee';
+
 export function buildFillColorExpression(metric) {
+  if (metric === 'dominant') return buildDominantCategoryExpression();
   const cfg = GRID_METRICS[metric] || GRID_METRICS.mix_index;
   const expr = ['interpolate', ['linear'], ['coalesce', ['get', metric], 0]];
   cfg.stops.forEach(([stop, color]) => expr.push(stop, color));
   return expr;
 }
 
+// Colors a hexagon by whichever of res_score/comm_score/occa_score dominates,
+// or by MIXED_AREA_COLOR when mix_index shows a genuine 2+-category balance --
+// so an area's main "vocation" (or its mixed-use status) reads at a glance,
+// without clicking (2026-07-25 feedback).
+export function buildDominantCategoryExpression() {
+  const r = ['coalesce', ['get', 'res_score'], 0];
+  const c = ['coalesce', ['get', 'comm_score'], 0];
+  const o = ['coalesce', ['get', 'occa_score'], 0];
+  return [
+    'case',
+    ['>=', ['coalesce', ['get', 'mix_index'], 0], MIX_THRESHOLD], MIXED_AREA_COLOR,
+    ['all', ['>=', r, c], ['>=', r, o]], CATEGORY_STYLES.residenti.color,
+    ['>=', c, o], CATEGORY_STYLES.pendolari.color,
+    CATEGORY_STYLES.occasionali.color
+  ];
+}
+
 export function gridMetricGradientCss(metric) {
   const cfg = GRID_METRICS[metric] || GRID_METRICS.mix_index;
+  if (!cfg || !cfg.stops) return null;
   const colors = cfg.stops.map(([, color]) => color).join(', ');
   return `linear-gradient(to right, ${colors})`;
 }
 
+// Cluster circle color, by whichever category has the most points inside that
+// cluster (aggregated via the source's clusterProperties: cnt_<category>).
+// Ties break in cross_civic > residenti > pendolari > occasionali order.
+export function buildClusterCategoryColorExpression() {
+  const cc = ['coalesce', ['get', 'cnt_cross_civic'], 0];
+  const rs = ['coalesce', ['get', 'cnt_residenti'], 0];
+  const pd = ['coalesce', ['get', 'cnt_pendolari'], 0];
+  const oc = ['coalesce', ['get', 'cnt_occasionali'], 0];
+  return [
+    'case',
+    ['all', ['>=', cc, rs], ['>=', cc, pd], ['>=', cc, oc]], CATEGORY_STYLES.cross_civic.color,
+    ['all', ['>=', rs, pd], ['>=', rs, oc]], CATEGORY_STYLES.residenti.color,
+    ['>=', pd, oc], CATEGORY_STYLES.pendolari.color,
+    CATEGORY_STYLES.occasionali.color
+  ];
+}
+
+export const CLUSTER_CATEGORY_PROPERTIES = {
+  cnt_cross_civic: ['+', ['case', ['==', ['get', 'category'], 'cross_civic'], 1, 0]],
+  cnt_residenti: ['+', ['case', ['==', ['get', 'category'], 'residenti'], 1, 0]],
+  cnt_pendolari: ['+', ['case', ['==', ['get', 'category'], 'pendolari'], 1, 0]],
+  cnt_occasionali: ['+', ['case', ['==', ['get', 'category'], 'occasionali'], 1, 0]]
+};
+
 // Visual glyph + badge color per `icon_name`, as assigned by the Python pipeline's
 // ICON_MAP (build_data.py). Colors echo the dominant CATEGORY_STYLES color so the
 // unclustered POI icons stay legible against the category legend.
+// NOTE: 'bench' and 'viewpoint' are no longer produced by the pipeline (dropped
+// as street-furniture noise, 2026-07-25) but are harmless to leave mapped here.
 export const ICON_VISUALS = {
   castle: { emoji: '🏰', color: CATEGORY_STYLES.occasionali.color },
   monument: { emoji: '🗿', color: CATEGORY_STYLES.occasionali.color },
   ruins: { emoji: '🏚️', color: CATEGORY_STYLES.occasionali.color },
+  historic: { emoji: '🎖️', color: CATEGORY_STYLES.occasionali.color },
   theater: { emoji: '🎭', color: CATEGORY_STYLES.occasionali.color },
   museum: { emoji: '🏛️', color: CATEGORY_STYLES.occasionali.color },
   attraction: { emoji: '🎡', color: CATEGORY_STYLES.occasionali.color },
@@ -59,12 +260,17 @@ export const ICON_VISUALS = {
   restaurant: { emoji: '🍽️', color: CATEGORY_STYLES.occasionali.color },
   cafe: { emoji: '☕', color: CATEGORY_STYLES.occasionali.color },
   hotel: { emoji: '🏨', color: CATEGORY_STYLES.occasionali.color },
+  climbing: { emoji: '🧗', color: CATEGORY_STYLES.occasionali.color },
   library: { emoji: '📚', color: CATEGORY_STYLES.pendolari.color },
   college: { emoji: '🎓', color: CATEGORY_STYLES.pendolari.color },
   bus: { emoji: '🚌', color: CATEGORY_STYLES.pendolari.color },
+  copyshop: { emoji: '🖨️', color: CATEGORY_STYLES.pendolari.color },
+  sport: { emoji: '⚽', color: CATEGORY_STYLES.residenti.color },
   park: { emoji: '🌳', color: CATEGORY_STYLES.cross_civic.color },
   drinking_water: { emoji: '🚰', color: CATEGORY_STYLES.cross_civic.color },
   bench: { emoji: '🪑', color: CATEGORY_STYLES.cross_civic.color },
+  market: { emoji: '🛒', color: CATEGORY_STYLES.cross_civic.color },
+  association: { emoji: '🤝', color: CATEGORY_STYLES.cross_civic.color },
   information: { emoji: 'ℹ️', color: '#94a3b8' },
   marker: { emoji: '📍', color: '#94a3b8' }
 };
@@ -149,8 +355,23 @@ const SUB_TYPE_LABELS = {
   wilderness_hut: 'Bivacco',
   trench: 'Trincea Storica',
   market: 'Mercato Settimanale',
-  historic: 'Stoi Militari'
+  historic: 'Stoi Militari',
+  sports_centre: 'Centro Sportivo'
 };
+
+// Placeholder banner (data: URI, no network request) shown in the PoI popup
+// when `image_url` is missing or was found broken by the pipeline's image
+// check -- a colored card with the icon's emoji, instead of hotlinking a
+// stock photo we can't vouch for. Reuses ICON_VISUALS so it matches the same
+// color/emoji already used for that PoI's map marker.
+export function buildPlaceholderImageDataUri(iconName) {
+  const { emoji, color } = ICON_VISUALS[iconName] || ICON_VISUALS.marker;
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="240" height="120">
+    <rect width="240" height="120" fill="${color}"/>
+    <text x="120" y="64" font-size="46" text-anchor="middle" dominant-baseline="middle">${emoji}</text>
+  </svg>`;
+  return `data:image/svg+xml,${encodeURIComponent(svg)}`;
+}
 
 export function formatSubType(subType) {
   if (!subType) return '';
