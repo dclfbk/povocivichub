@@ -1,7 +1,8 @@
 # Povo Civic Hub
 > **Atlante interattivo della co-presenza, della vitalità territoriale e dell'infrastruttura sociale per la circoscrizione di Povo (Trento)**
 
-[![Deploy to GitHub Pages](https://github.com/dclfbk/povocivichub/actions/workflows/deploy.yml/badge.svg)](https://github.com/Ndclfbk/povocivichub/actions/actions/workflows/deploy.yml)
+
+[![Deploy to GitHub Pages](https://github.com/dclfbk/povocivichub/actions/workflows/deploy.yml/badge.svg)](https://github.com/dclfbk/povocivichub/actions/workflows/deploy.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 ---
