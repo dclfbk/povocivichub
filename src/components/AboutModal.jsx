@@ -61,7 +61,7 @@ export default function AboutModal({ isOpen, onClose }) {
             <div className="p-2 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-xl shadow-lg shadow-indigo-500/25">
               <BookOpen className="w-5 h-5 text-white" />
             </div>
-            <h2 className="text-lg font-bold tracking-tight">Scienza & Metodologia</h2>
+            <h2 className="text-lg font-bold tracking-tight">Povo Civic HUB</h2>
           </div>
           <button
             onClick={onClose}

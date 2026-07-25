@@ -323,7 +323,7 @@ export default function Sidebar({
               title={selectedHex ? 'Profilo Esagone' : 'Profilo Medio Circoscrizione'}
               segments={buildHexSegments(selectedHex || { res_score: 0.42, comm_score: 0.38, occa_score: 0.56 })}
               valueLabel="Valore assoluto: punteggio normalizzato (0-1) di prossimità/densità PoI"
-              note="Gli esagoni non hanno un punteggio civico separato: il Verde Urbano & Servizi Civici alimenta sia Residenti sia Occasionali nel calcolo (sono gli oggetti che uniscono le categorie)."
+              note="Gli esagoni non hanno un punteggio civico separato: i Luoghi Pubblici alimentano tutti e tre gli assi nel calcolo (sono gli oggetti che uniscono le categorie)."
             />
           </div>
         </section>
@@ -387,10 +387,10 @@ export default function Sidebar({
           )}
         </section>
 
-        {/* Verde Urbano & Servizi Civici */}
+        {/* Luoghi Pubblici */}
         <section className="space-y-3">
           <div className="flex items-center gap-2 text-sm font-semibold text-slate-200">
-            <Layers className="w-4 h-4 text-emerald-400" /> Verde Urbano & Servizi Civici
+            <Layers className="w-4 h-4 text-emerald-400" /> Luoghi Pubblici
           </div>
 
           <div className="space-y-2.5 text-xs">
@@ -459,7 +459,15 @@ export default function Sidebar({
 
       {/* Footer */}
       <footer className="p-4 border-t border-slate-800/80 bg-slate-950/80 text-[11px] text-slate-400 text-center">
-        Povo Civic Hub &copy; 2026 &bull; Data Science Unitn &bull; OpenFreeMap & MapLibre GL
+        Povo Civic Hub 2026 &bull; napo@fbk &bull;{' '}
+        <a
+          href="https://github.com/dclfbk/povocivichub"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="hover:text-slate-200 underline transition"
+        >
+          github.com/dclfbk/povocivichub
+        </a>
       </footer>
     </aside>
   );

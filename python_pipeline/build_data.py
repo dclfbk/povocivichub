@@ -6,8 +6,13 @@ Povo Civic Hub - Geographic Data Analysis Pipeline (ICC Edition, outdoor-sport f
      amenity, shop, tourism, leisure, sport=* (any value, not just climbing --
      used to label sports pitches), highway=bus_stop, railway=station/halt,
      place=square, historic, office, public_transport=platform.
-   - Benches, viewpoints and parking are intentionally NOT extracted (2026-07-25
-     feedback: street-furniture noise, not signal for this project's goal).
+   - Benches, viewpoints and recycling points (isole ecologiche) are
+     intentionally NOT extracted (2026-07-25 feedback: street-furniture
+     noise, not signal for this project's goal). `amenity=parking` IS fetched,
+     but only to compute a distance-to-parking
+     accessibility indicator (d_parking_m) -- it's never classified/displayed
+     as a PoI and never feeds W_cat/ICC/mix_index (see
+     classify_and_transform_pois and calculate_accessibility_distances).
    - `tourism=information` trail signage is kept ONLY if it falls within 30m of
      a named trail/track way (fetch_named_hiking_routes) -- otherwise it's
      dropped as clutter.
@@ -41,7 +46,8 @@ Povo Civic Hub - Geographic Data Analysis Pipeline (ICC Edition, outdoor-sport f
      network-distance decay factor to the nearest bus/rail stop (pedestrian
      graph, no redundant second download) and Q_data is the share of key
      fields populated. The original formula's P_park term was dropped and the
-     remaining weights renormalized (parking isn't mapped/scored anymore).
+     remaining weights renormalized (parking distance is still computed as
+     its own d_parking_m indicator, just no longer scored into ICC/mix_index).
 
 6. RICALCOLO GRIGLIA H3 E MIXITE:
    - H3 resolution 10 (finer than the previous res 9, 2026-07-25 feedback).
@@ -107,6 +113,16 @@ PUBLIC_INTEREST_SUB_TYPES = {
     'picnic_site', 'nature_reserve', 'amphitheatre', 'museum', 'library'
 }
 
+# Places that hand out ready-to-eat/takeaway food: pizza al taglio, pizzerie,
+# fast-food, ristoranti, bar, supermercati (2026-07-25 feedback). Used to
+# gate whether a picnic area is realistically useful to pendolari on a lunch
+# break -- see calculate_scores_and_mixite, where this determines
+# `offre_asporto` per PoI. `shop == 'supermarket'` and the OSM `takeaway=yes`
+# tag are checked separately (a supermarket sells takeaway-able food without
+# being one of these amenity sub-types, and `takeaway=yes` can appear on
+# other shop/amenity types this list doesn't otherwise cover).
+TAKEAWAY_FOOD_SUB_TYPES = {'fast_food', 'restaurant', 'pub', 'bar', 'cafe'}
+
 # Fields whose fill-rate makes up the ICC's Q_data (data quality) component.
 KEY_QUALITY_FIELDS = ['orari_apertura', 'contatti', 'image_url', 'accessibilita_disabili']
 
@@ -133,18 +149,24 @@ def fetch_osm_graph_and_pois(gdf_wgs84):
     G_utm = ox.project_graph(G, to_crs=TARGET_CRS)
     print(f"    Pedestrian network retrieved: {len(G_utm.nodes)} nodes, {len(G_utm.edges)} edges.")
 
-    # 2. Comprehensive POI tags. NOTE: benches, viewpoints and parking are
-    # intentionally excluded (2026-07-25 feedback): they're street-furniture
-    # noise for this project's goal, not signal. `sport` is kept as its own
-    # column even for `leisure=pitch` features (not just climbing) so pitches
-    # can be labelled "Campo da <sport>" instead of the raw OSM word "pitch".
+    # 2. Comprehensive POI tags. NOTE: benches, viewpoints and recycling
+    # points (isole ecologiche, amenity=recycling) are intentionally excluded
+    # (2026-07-25 feedback): they're street-furniture noise for this project's
+    # goal, not signal. `sport` is kept as its own column even for
+    # `leisure=pitch` features (not just climbing) so pitches can be labelled
+    # "Campo da <sport>" instead of the raw OSM word "pitch". `parking` IS
+    # fetched (2026-07-25 feedback) but only to compute a distance-to-parking
+    # accessibility indicator (see calculate_accessibility_distances) --
+    # classify_and_transform_pois explicitly skips it so it never becomes a
+    # displayed/scored PoI (no category, no icon, doesn't feed any social
+    # indicator).
     tags = {
         'amenity': [
             'university', 'research_institute', 'library', 'school', 'kindergarten',
             'pharmacy', 'post_office', 'townhall', 'community_centre', 'social_facility',
-            'cafe', 'restaurant', 'pub', 'bar', 'canteen', 'fast_food', 'bank', 'recycling',
+            'cafe', 'restaurant', 'pub', 'bar', 'canteen', 'fast_food', 'bank',
             'public_bookcase', 'drinking_water', 'shelter', 'place_of_worship',
-            'theatre', 'arts_centre'
+            'theatre', 'arts_centre', 'parking'
         ],
         'shop': [
             'supermarket', 'bakery', 'convenience', 'butcher', 'greengrocer', 'chemist', 'books',
@@ -217,6 +239,16 @@ def fetch_named_hiking_routes(gdf_wgs84):
     return buffer_poly
 
 
+# Stock photo fallback for sub_types that are real, physical, photographable
+# places but are anonymous OSM nodes with no name/Wikidata entry of their own
+# to enrich a photo from (2026-07-25 feedback: "per le immagini di area
+# fitness vorrei una foto, pesca dalla rete"). Sourced from Wikimedia Commons
+# (Category:Outdoor gyms), reachable and CC-licensed like the other Commons
+# photos this pipeline already links to.
+DEFAULT_IMAGE_BY_SUB_TYPE = {
+    'fitness_station': 'https://commons.wikimedia.org/wiki/Special:FilePath/Bench%20press%20at%20an%20outdoor%20fitness%20station.jpg',
+}
+
 # Maps (osm_key, osm_value) pairs to a MapLibre-renderable icon name. Checked in
 # priority order (historic > amenity > tourism > leisure > highway > railway) since
 # a POI can carry tags from more than one of these keys at once.
@@ -260,6 +292,13 @@ ICON_MAP = {
     ('railway', 'halt'): 'bus',
     ('public_transport', 'platform'): 'bus',
     ('sport', 'climbing'): 'climbing',
+    # Sport-specific pitch icons (2026-07-25 feedback) -- checked before
+    # `sport` falls through to the generic ('leisure', 'pitch'): 'sport'
+    # mapping below, since `assign_icon_name` tries the `sport` key ahead of
+    # `leisure` in its priority order.
+    ('sport', 'basketball'): 'basketball_court',
+    ('sport', 'volleyball'): 'volleyball_court',
+    ('sport', 'tennis'): 'tennis_court',
     ('shop', 'copyshop'): 'copyshop',
     ('office', 'association'): 'association',
     ('office', 'ngo'): 'association',
@@ -411,23 +450,15 @@ def format_pitch_label(sport):
     return f'Campo da {it_name}'
 
 
-# `tourism=guest_house` alone doesn't distinguish an actual farm-stay
-# ("agriturismo", tagged with a further `guest_house=agritourism` sub-tag)
-# from a plain B&B -- without reading this sub-tag every guest_house feature
-# was mislabeled "Agriturismo" regardless (2026-07-25 feedback: e.g. "B&B Le
-# Ziette" isn't a farm-stay but was showing up as one).
-GUEST_HOUSE_LABELS_IT = {
-    'agritourism': 'Agriturismo',
-    'bed_and_breakfast': 'Bed & Breakfast',
-    'homestay': 'Affittacamere',
-    'chalet': 'Chalet',
-    'hostel': 'Ostello',
-}
-
-
-def format_guest_house_label(guest_house_type):
-    """Italian label for a `tourism=guest_house` feature, refined by its `guest_house=*` sub-tag."""
-    return GUEST_HOUSE_LABELS_IT.get(guest_house_type, 'Affittacamere / Guest House')
+# Affittacamere, guest house, hotel and agriturismi are all the same kind of
+# thing to a visitor -- a place to sleep -- so they're unified under one
+# "Tipo di Servizio" label rather than split by OSM's `tourism=guest_house`
+# vs `tourism=hotel` vs the `guest_house=agritourism/bed_and_breakfast/...`
+# sub-tag (2026-07-25 feedback: "vanno sotto la stessa categoria"). Covers
+# every sub_type in ACCOMMODATION_SUB_TYPES; sub_type/osm_tag still keep the
+# precise underlying OSM value if that distinction is ever needed again.
+ACCOMMODATION_LABEL_IT = 'Struttura Ricettiva'
+ACCOMMODATION_SUB_TYPES = {'guest_house', 'hotel'}
 
 
 OPENING_HOURS_DAY_MAP = {'Mo': 'Lun', 'Tu': 'Mar', 'We': 'Mer', 'Th': 'Gio', 'Fr': 'Ven', 'Sa': 'Sab', 'Su': 'Dom'}
@@ -473,7 +504,7 @@ def classify_and_transform_pois(raw_pois_utm, named_routes_buffer=None):
         'id', 'name', 'category', 'sub_type', 'osm_tag', 'icon_name', 'amenity_type',
         'social_function', 'image_url', 'indirizzo', 'orari_apertura', 'contatti',
         'sito_web', 'accessibilita_disabili', 'source', 'wikidata_id', 'wikipedia_title',
-        'accesso_pubblico', 'geometry'
+        'accesso_pubblico', 'offre_asporto', 'geometry'
     ]
     if len(raw_pois_utm) == 0:
         empty_gdf_utm = gpd.GeoDataFrame(columns=empty_cols, crs=TARGET_CRS)
@@ -485,10 +516,21 @@ def classify_and_transform_pois(raw_pois_utm, named_routes_buffer=None):
     gdf_pts_utm = gpd.GeoDataFrame(raw_pois_utm.drop(columns=['geometry']), geometry=centroids_utm, crs=TARGET_CRS)
     gdf_pts_wgs84 = gdf_pts_utm.to_crs(WGS84_CRS)
 
+    # Bus stop locations, used below to recognize an amenity=shelter as a bus
+    # stop's pensilina rather than generic civic infrastructure (2026-07-25
+    # feedback) when it doesn't carry the (rarer) shelter_type=public_transport
+    # tag itself.
+    BUS_SHELTER_RADIUS_M = 15.0
+    if 'highway' in gdf_pts_utm.columns:
+        bus_stop_geoms = gdf_pts_utm.loc[gdf_pts_utm['highway'] == 'bus_stop', 'geometry']
+    else:
+        bus_stop_geoms = gpd.GeoSeries([], crs=TARGET_CRS)
+
     poi_records_utm = []
     poi_records_wgs84 = []
 
     n_signage_dropped = 0
+    n_parking_skipped = 0
     for idx, row in gdf_pts_utm.iterrows():
         pt_utm = row.geometry
         pt_wgs84 = gdf_pts_wgs84.loc[idx].geometry
@@ -509,12 +551,28 @@ def classify_and_transform_pois(raw_pois_utm, named_routes_buffer=None):
         wikidata = str(row.get('wikidata', ''))
         wikipedia = str(row.get('wikipedia', ''))
         opening_hours = str(row.get('opening_hours', ''))
-        guest_house_type = str(row.get('guest_house', ''))
+        takeaway_tag = str(row.get('takeaway', '')).lower()
         accesso_pubblico = compute_accesso_pubblico(row.get('access', ''))
 
         name = str(row.get('name', ''))
         if name == 'nan':
             name = ''
+
+        is_bus_shelter = False
+        if amenity == 'shelter':
+            shelter_type = str(row.get('shelter_type', ''))
+            if shelter_type == 'public_transport':
+                is_bus_shelter = True
+            elif len(bus_stop_geoms) > 0 and bus_stop_geoms.distance(pt_utm).min() <= BUS_SHELTER_RADIUS_M:
+                is_bus_shelter = True
+
+        # Parking is fetched only to feed the distance-to-parking accessibility
+        # indicator (calculate_accessibility_distances reads it straight from
+        # raw_pois_utm) -- it must never become a displayed/scored PoI (2026-07-25
+        # feedback: no social-indicator category, no map icon, no table row).
+        if amenity == 'parking':
+            n_parking_skipped += 1
+            continue
 
         # Generic trail signage is noise unless it marks a named hiking/running
         # route (2026-07-25 feedback: too many points on mountain trails).
@@ -525,8 +583,15 @@ def classify_and_transform_pois(raw_pois_utm, named_routes_buffer=None):
                 continue
 
         # Classification Logic
-        # 1. Cross / Civic (Verde Urbano & Servizi Civici)
-        if (amenity in ['public_bookcase', 'community_centre', 'drinking_water', 'shelter', 'townhall', 'social_facility', 'place_of_worship'] or
+        # 1. Cross / Civic (Luoghi Pubblici) -- an unnamed amenity=shelter that's
+        # actually a bus-stop shelter is NOT third-place civic infrastructure,
+        # it's transit infra, so it's carved out here and picked up by the
+        # pendolari branch below instead (2026-07-25 feedback).
+        is_cross_civic_amenity = (
+            amenity in ['public_bookcase', 'community_centre', 'drinking_water', 'shelter', 'townhall', 'social_facility', 'place_of_worship']
+            and not (amenity == 'shelter' and is_bus_shelter)
+        )
+        if (is_cross_civic_amenity or
             leisure in ['park', 'garden'] or
             place == 'square' or
             office in ['association', 'ngo']):
@@ -539,8 +604,11 @@ def classify_and_transform_pois(raw_pois_utm, named_routes_buffer=None):
                         (f'place={place}' if place != 'nan' else f'office={office}')))
 
         # 2. Pendolari (Campus UniTN/FBK, biblioteche, mense, TPL, copisterie,
-        #    uffici/aziende ICT -- office=it, come le altre sedi di ricerca)
+        #    uffici/aziende ICT -- office=it, come le altre sedi di ricerca,
+        #    pensiline delle fermate -- amenity=shelter riconosciuto come
+        #    tale, 2026-07-25 feedback)
         elif (amenity in ['university', 'research_institute', 'library', 'canteen'] or
+              (amenity == 'shelter' and is_bus_shelter) or
               shop == 'copyshop' or
               highway == 'bus_stop' or
               railway in ['station', 'halt'] or
@@ -550,16 +618,22 @@ def classify_and_transform_pois(raw_pois_utm, named_routes_buffer=None):
             # NOTE: `office` was previously missing from this fallback chain,
             # so an office-only POI (no amenity/shop/highway/railway/
             # public_transport) would end up with sub_type/osm_tag == 'nan'.
+            # `public_transport` is checked *before* `highway` here (2026-07-25
+            # feedback: "i percorsi pedonali sono fermate dell'autobus") --
+            # a bus platform mapped as a way often carries an incidental
+            # highway=footway tag alongside public_transport=platform, and
+            # without this ordering it showed up mislabeled as "Percorso
+            # Pedonale" instead of the bus platform it actually is.
             sub_type = (amenity if amenity != 'nan' else
                         (shop if shop != 'nan' else
-                         (highway if highway != 'nan' else
-                          (railway if railway != 'nan' else
-                           (public_transport if public_transport != 'nan' else office)))))
+                         (public_transport if public_transport != 'nan' else
+                          (highway if highway != 'nan' else
+                           (railway if railway != 'nan' else office)))))
             osm_tag = (f'amenity={amenity}' if amenity != 'nan' else
                        (f'shop={shop}' if shop != 'nan' else
-                        (f'highway={highway}' if highway != 'nan' else
-                         (f'railway={railway}' if railway != 'nan' else
-                          (f'public_transport={public_transport}' if public_transport != 'nan' else f'office={office}')))))
+                        (f'public_transport={public_transport}' if public_transport != 'nan' else
+                         (f'highway={highway}' if highway != 'nan' else
+                          (f'railway={railway}' if railway != 'nan' else f'office={office}')))))
 
         # 3. Occasionali (forti/castelli, monumenti/trincee, teatri/anfiteatri, musei/
         #    attrazioni, falesie, bivacchi, sentieri, punti panoramici, picnic, ristorazione)
@@ -589,8 +663,17 @@ def classify_and_transform_pois(raw_pois_utm, named_routes_buffer=None):
 
         # "Campo da <sport>" instead of the raw OSM word "pitch" (2026-07-25 feedback).
         amenity_type = (format_pitch_label(sport) if sub_type == 'pitch' else
-                         (format_guest_house_label(guest_house_type) if sub_type == 'guest_house' else
+                         (ACCOMMODATION_LABEL_IT if sub_type in ACCOMMODATION_SUB_TYPES else
                           format_amenity_type(sub_type)))
+
+        # Does this PoI hand out ready-to-eat/takeaway food? Used only to gate
+        # picnic areas' relevance to pendolari lunch breaks (2026-07-25
+        # feedback) -- see calculate_scores_and_mixite.
+        offre_asporto = (
+            sub_type in TAKEAWAY_FOOD_SUB_TYPES or
+            shop == 'supermarket' or
+            takeaway_tag == 'yes'
+        )
 
         rec_meta = {
             'id': str(idx[1]) if isinstance(idx, tuple) else str(idx),
@@ -601,7 +684,7 @@ def classify_and_transform_pois(raw_pois_utm, named_routes_buffer=None):
             'icon_name': icon_name,
             'amenity_type': amenity_type,
             'social_function': SOCIAL_FUNCTION_BY_CATEGORY[category],
-            'image_url': '',
+            'image_url': DEFAULT_IMAGE_BY_SUB_TYPE.get(sub_type, ''),
             'indirizzo': '',
             'orari_apertura': normalize_opening_hours(opening_hours),
             'contatti': '',
@@ -610,7 +693,8 @@ def classify_and_transform_pois(raw_pois_utm, named_routes_buffer=None):
             'source': 'osm',
             'wikidata_id': wikidata if wikidata != 'nan' else '',
             'wikipedia_title': wikipedia if wikipedia != 'nan' else '',
-            'accesso_pubblico': accesso_pubblico
+            'accesso_pubblico': accesso_pubblico,
+            'offre_asporto': offre_asporto
         }
 
         rec_utm = rec_meta.copy()
@@ -626,6 +710,7 @@ def classify_and_transform_pois(raw_pois_utm, named_routes_buffer=None):
 
     counts = gdf_pois_utm['category'].value_counts().to_dict()
     print(f"    Trail signage (tourism=information) dropped, not on a named route: {n_signage_dropped}")
+    print(f"    Parking features skipped (fetched only for distance-to-parking indicator, not a scored PoI): {n_parking_skipped}")
     print("    OSM POIs categorized:", counts)
     return gdf_pois_utm, gdf_pois_wgs84
 
@@ -693,6 +778,40 @@ def classify_local_poi(servizio, nome):
     return SERVIZIO_DEFAULT_CATEGORY.get(servizio, 'residenti')
 
 
+# Manual corrections applied to specific local-dataset entries before
+# classification/dedup (2026-07-25 feedback). "Bar Al Canton" (local) and
+# OSM's "Bar Osteria Can Ton" are the same physical bar (identical
+# coordinates) but only 62.5% name-similar -- below DEDUP_NAME_THRESHOLD, so
+# they showed up as two separate PoIs. Renaming the local side to match OSM's
+# name exactly (100% similarity) lets the normal dedup path fuse them.
+LOCAL_NOME_OVERRIDES = {
+    'Bar Al Canton': 'Bar Osteria Can Ton',
+}
+
+# APSP Margherita Grazioli runs three distinct local-dataset entries (Centro
+# Servizi, Casa Melograno, Punto Prelievi) that all shared the same generic
+# `attore` value as their displayed "Tipo di Servizio" -- renamed to a proper
+# Italian category, with the operator's name folded into the PoI's own name
+# instead (2026-07-25 feedback).
+LOCAL_ATTORE_AMENITY_OVERRIDES = {
+    'APSP Margherita Grazioli': 'Servizi alla Persona',
+}
+
+
+def normalize_attore(attore):
+    """
+    Case/synonym-fold the local dataset's `attore` field: 'privato',
+    'Privato' and 'Soggetto privato' all mean the same thing (an unnamed
+    private individual/operator) but showed up as distinct values in the
+    "Tipo di Servizio" filter (2026-07-25 feedback) -- everything else in
+    this field (org names, institution names, etc.) is left untouched.
+    """
+    key = (attore or '').strip().lower()
+    if key in ('privato', 'soggetto privato'):
+        return 'Privato'
+    return attore
+
+
 def _clean(value):
     """Normalize a raw local-dataset cell: strip, treat '-' / None / NaN as empty."""
     text = '' if value is None else str(value).strip()
@@ -748,12 +867,20 @@ def load_local_dataset(path):
             continue
 
         nome = _clean(row.get('nome', ''))
+        nome = LOCAL_NOME_OVERRIDES.get(nome, nome)
         servizio = _clean(row.get('servizio', ''))
         category = classify_local_poi(servizio, nome)
 
         referente = _clean(row.get('referente', ''))
         contatti_raw = _clean(row.get('contatti', ''))
         contatti = ' · '.join(p for p in (referente, contatti_raw) if p)
+
+        attore = _clean(row.get('attore', ''))
+        if attore in LOCAL_ATTORE_AMENITY_OVERRIDES:
+            nome = f'{nome} - {attore}'
+            amenity_type = LOCAL_ATTORE_AMENITY_OVERRIDES[attore]
+        else:
+            amenity_type = normalize_attore(attore)
 
         records_wgs84.append({
             'id': f'locale_{idx}',
@@ -762,7 +889,7 @@ def load_local_dataset(path):
             'sub_type': servizio,
             'osm_tag': f'locale={servizio}',
             'icon_name': 'marker',  # refined if fused with a matching OSM feature
-            'amenity_type': _clean(row.get('attore', '')),
+            'amenity_type': amenity_type,
             'social_function': SOCIAL_FUNCTION_BY_CATEGORY[category],
             'image_url': _clean(row.get('foto', '')),
             'indirizzo': _clean(row.get('indirizzo', '')),
@@ -776,6 +903,10 @@ def load_local_dataset(path):
             # The circoscrizione dataset carries no access-restriction field --
             # default to public, same rule as an OSM POI with no `access` tag.
             'accesso_pubblico': True,
+            # Best-effort inference from the source's own "servizio" bucket --
+            # its "Ristorazione e agriturismi" entries are exactly the kind of
+            # place that hands out ready-to-eat food (2026-07-25 feedback).
+            'offre_asporto': servizio == 'Ristorazione e agriturismi',
             'geometry': geom
         })
 
@@ -845,6 +976,8 @@ def deduplicate_and_merge(gdf_local_utm, gdf_local_wgs84, gdf_osm_utm, gdf_osm_w
                 # OSM carries the real `access` tag; the local dataset only ever
                 # defaults to True, so OSM's value is the more informative one.
                 fused['accesso_pubblico'] = osm_row.get('accesso_pubblico', True)
+                # OR-combine: either side inferring "yes" is enough to count.
+                fused['offre_asporto'] = bool(osm_row.get('offre_asporto', False)) or bool(fused.get('offre_asporto', False))
                 for field in ('image_url', 'orari_apertura', 'wikidata_id', 'wikipedia_title'):
                     if not fused.get(field):
                         fused[field] = osm_row.get(field, '')
@@ -910,6 +1043,7 @@ MANUAL_POIS = [
         'wikidata_id': '',
         'wikipedia_title': '',
         'accesso_pubblico': True,
+        'offre_asporto': False,
         'lon': 11.1782,
         'lat': 46.0625
     }
@@ -1236,14 +1370,17 @@ def calculate_gtfs_accessibility(gdf_hex_utm, G_utm, gtfs_stops):
 def calculate_accessibility_distances(gdf_pois_utm, G_utm, raw_pois_utm):
     """
     Compute, for every POI, the shortest pedestrian-network distance (metres) to
-    the nearest bus/rail stop (d_bus_m). Reuses the pedestrian graph already
-    fetched for the boundary area (no redundant second ox.graph_from_place
-    download) and treats it as undirected, since one-way tagging on footways
-    doesn't meaningfully restrict where a pedestrian can walk.
-    NOTE: parking accessibility (d_park_m/P_park) was dropped entirely
-    (2026-07-25 feedback) -- parking is not mapped or scored anymore.
+    the nearest bus/rail stop (d_bus_m) and to the nearest parking lot
+    (d_parking_m). Reuses the pedestrian graph already fetched for the boundary
+    area (no redundant second ox.graph_from_place download) and treats it as
+    undirected, since one-way tagging on footways doesn't meaningfully restrict
+    where a pedestrian can walk.
+    NOTE: d_parking_m is a distance indicator only (2026-07-25 feedback: fetch
+    parking for accessibility-distance purposes, but never score/display it as
+    a PoI) -- it does not feed W_cat/ICC or any social/mix indicator, exactly
+    like the old P_park term that was dropped entirely from those formulas.
     """
-    print("--> Calculating network accessibility distances to bus stops...")
+    print("--> Calculating network accessibility distances to bus stops and parking...")
     G_undirected = G_utm.to_undirected()
 
     def nodes_for(mask):
@@ -1257,6 +1394,7 @@ def calculate_accessibility_distances(gdf_pois_utm, G_utm, raw_pois_utm):
     highway_col = raw_pois_utm['highway'] if 'highway' in raw_pois_utm.columns else None
     railway_col = raw_pois_utm['railway'] if 'railway' in raw_pois_utm.columns else None
     pt_col = raw_pois_utm['public_transport'] if 'public_transport' in raw_pois_utm.columns else None
+    amenity_col = raw_pois_utm['amenity'] if 'amenity' in raw_pois_utm.columns else None
 
     bus_mask = pd.Series(False, index=raw_pois_utm.index)
     if highway_col is not None:
@@ -1266,10 +1404,16 @@ def calculate_accessibility_distances(gdf_pois_utm, G_utm, raw_pois_utm):
     if pt_col is not None:
         bus_mask |= (pt_col == 'platform')
 
+    parking_mask = pd.Series(False, index=raw_pois_utm.index)
+    if amenity_col is not None:
+        parking_mask |= (amenity_col == 'parking')
+
     bus_nodes = set(nodes_for(bus_mask))
-    print(f"    Accessibility sources: {len(bus_nodes)} bus/rail stop nodes.")
+    parking_nodes = set(nodes_for(parking_mask))
+    print(f"    Accessibility sources: {len(bus_nodes)} bus/rail stop nodes, {len(parking_nodes)} parking-lot nodes.")
 
     dist_to_bus = nx.multi_source_dijkstra_path_length(G_undirected, bus_nodes, weight='length') if bus_nodes else {}
+    dist_to_parking = nx.multi_source_dijkstra_path_length(G_undirected, parking_nodes, weight='length') if parking_nodes else {}
 
     poi_xs = [g.x for g in gdf_pois_utm.geometry]
     poi_ys = [g.y for g in gdf_pois_utm.geometry]
@@ -1277,6 +1421,7 @@ def calculate_accessibility_distances(gdf_pois_utm, G_utm, raw_pois_utm):
 
     FAR = 5000.0  # metres: fallback when unreachable within the extracted graph
     gdf_pois_utm['d_bus_m'] = np.round([dist_to_bus.get(n, FAR) for n in poi_nodes], 1)
+    gdf_pois_utm['d_parking_m'] = np.round([dist_to_parking.get(n, FAR) for n in poi_nodes], 1)
     return gdf_pois_utm
 
 
@@ -1326,14 +1471,24 @@ def calculate_scores_and_mixite(gdf_hex_utm, G_utm, gdf_pois_utm, gtfs_stops):
     """
     print("--> Calculating weighted hexagon scores and Mixité Index with massive POIs...")
 
-    # Places of worship and anything not openly accessible (access=private/no/
-    # customers) don't represent a neighbourhood service available to the
-    # general population, so they're excluded from the indicator calculation
-    # entirely (2026-07-25 feedback) -- they still show up on the map/table,
-    # just don't count toward res_score/comm_score/occa_score/mix_index.
-    excluded_mask = (gdf_pois_utm['sub_type'] == 'place_of_worship') | (gdf_pois_utm['accesso_pubblico'] == False)  # noqa: E712
+    # Places of worship, anything not openly accessible (access=private/no/
+    # customers), and unnamed generic shelters don't represent a neighbourhood
+    # service available to the general population, so they're excluded from
+    # the indicator calculation entirely (2026-07-25 feedback) -- they still
+    # show up on the map/table, just don't count toward
+    # res_score/comm_score/occa_score/mix_index. An unnamed "Rifugio /
+    # Pensilina" (amenity=shelter) is ambiguous clutter unless it's actually a
+    # bus-stop shelter -- but those were already reclassified to
+    # category='pendolari' in classify_and_transform_pois, so checking
+    # category=='cross_civic' here only catches the non-bus-shelter ones.
+    excluded_mask = (
+        (gdf_pois_utm['sub_type'] == 'place_of_worship') |
+        (gdf_pois_utm['accesso_pubblico'] == False) |  # noqa: E712
+        ((gdf_pois_utm['sub_type'] == 'shelter') & (gdf_pois_utm['category'] == 'cross_civic') & (gdf_pois_utm['name'] == ''))
+    )
     gdf_indic = gdf_pois_utm[~excluded_mask]
-    print(f"    PoI esclusi dal calcolo indicatori (luoghi di culto o accesso non pubblico): {excluded_mask.sum()}")
+    print(f"    PoI esclusi dal calcolo indicatori (luoghi di culto, accesso non pubblico, "
+          f"o rifugi/pensiline senza nome): {excluded_mask.sum()}")
 
     # Filter POIs by category
     gdf_res = gdf_indic[gdf_indic['category'] == 'residenti']
@@ -1347,8 +1502,37 @@ def calculate_scores_and_mixite(gdf_hex_utm, G_utm, gdf_pois_utm, gtfs_stops):
     # top of, not instead of, the category split above.
     gdf_shared = gdf_indic[gdf_indic['sub_type'].isin(PUBLIC_INTEREST_SUB_TYPES)]
     gdf_shared_for_res = gdf_shared[gdf_shared['category'] != 'residenti']
-    gdf_shared_for_comm = gdf_shared[gdf_shared['category'] != 'pendolari']
     gdf_shared_for_occa = gdf_shared[gdf_shared['category'] != 'occasionali']
+
+    # Picnic areas only make sense as a pendolari lunch-break draw if there's
+    # actually takeaway food nearby, within a ~5-minute walk (2026-07-25
+    # feedback) -- unlike every other PUBLIC_INTEREST_SUB_TYPES entry, a
+    # picnic site's contribution to comm_score specifically is gated on this
+    # proximity check (it still freely cross-feeds res_score, and occa_score
+    # is its own home axis, unaffected).
+    WALK_5MIN_M = 400.0  # ~5 minutes at a standard ~80 m/min walking pace
+    takeaway_pois = gdf_indic[gdf_indic['offre_asporto'] == True]  # noqa: E712
+    picnic_mask = gdf_shared['sub_type'] == 'picnic_site'
+    picnic_near_takeaway_ids = set()
+    if picnic_mask.any() and len(takeaway_pois) > 0:
+        G_undirected_food = G_utm.to_undirected()
+        takeaway_nodes = set(ox.distance.nearest_nodes(
+            G_utm, [g.x for g in takeaway_pois.geometry], [g.y for g in takeaway_pois.geometry]
+        ))
+        dist_to_takeaway = nx.multi_source_dijkstra_path_length(G_undirected_food, takeaway_nodes, weight='length')
+
+        picnic_pois = gdf_shared[picnic_mask]
+        picnic_nodes = ox.distance.nearest_nodes(
+            G_utm, [g.x for g in picnic_pois.geometry], [g.y for g in picnic_pois.geometry]
+        )
+        for poi_id, node in zip(picnic_pois.index, picnic_nodes):
+            if dist_to_takeaway.get(node, math.inf) <= WALK_5MIN_M:
+                picnic_near_takeaway_ids.add(poi_id)
+    print(f"    Aree picnic vicine (<= {WALK_5MIN_M:.0f}m) a cibo d'asporto, rilevanti anche per pendolari: "
+          f"{len(picnic_near_takeaway_ids)} / {picnic_mask.sum()}")
+
+    picnic_eligible_for_comm = ~picnic_mask | gdf_shared.index.isin(picnic_near_takeaway_ids)
+    gdf_shared_for_comm = gdf_shared[(gdf_shared['category'] != 'pendolari') & picnic_eligible_for_comm]
 
     def compute_raw_poi_score(hex_geom, pois_gdf):
         if len(pois_gdf) == 0:
@@ -1426,8 +1610,36 @@ def calculate_scores_and_mixite(gdf_hex_utm, G_utm, gdf_pois_utm, gtfs_stops):
     gdf_hex_utm['occa_score'] = np.round(norm_occa, 4)
     gdf_hex_utm['mix_index'] = np.round(mix_index, 4)
 
+    # Make the cross-feed above an explicit, queryable per-PoI attribute
+    # instead of just an internal scoring detail (2026-07-25 feedback:
+    # "dobbiamo mettere categoria principale ed una secondaria che indica per
+    # quale altra categoria [conta]"). A PoI's `categoria_secondaria` lists
+    # every OTHER category its own axis-membership above actually feeds into
+    # -- empty for anything not in PUBLIC_INTEREST_SUB_TYPES (or a picnic
+    # site too far from takeaway food to count for pendolari), and excluded
+    # PoIs (place_of_worship/private) also end up empty since they were never
+    # part of gdf_shared in the first place.
+    secondary_res_ids = set(gdf_shared_for_res.index)
+    secondary_comm_ids = set(gdf_shared_for_comm.index)
+    secondary_occa_ids = set(gdf_shared_for_occa.index)
+
+    def compute_secondary_categories(idx):
+        cats = []
+        if idx in secondary_res_ids:
+            cats.append('residenti')
+        if idx in secondary_comm_ids:
+            cats.append('pendolari')
+        if idx in secondary_occa_ids:
+            cats.append('occasionali')
+        # Comma-joined string, not a list -- GeoJSON/OGR property serialization
+        # doesn't handle list-typed columns cleanly, and a plain string is
+        # just as easy for the frontend to split on ',' when non-empty.
+        return ','.join(cats)
+
+    gdf_pois_utm['categoria_secondaria'] = gdf_pois_utm.index.map(compute_secondary_categories)
+
     print("    Score calculations and Mixité Index complete.")
-    return gdf_hex_utm
+    return gdf_hex_utm, gdf_pois_utm
 
 
 def export_results(gdf_hex_utm, gdf_boundary_utm, gdf_pois_wgs84):
@@ -1573,13 +1785,15 @@ def main():
 
     gdf_pois_utm = calculate_accessibility_distances(gdf_pois_utm, G_utm, raw_pois_utm)
     gdf_pois_wgs84['d_bus_m'] = gdf_pois_utm['d_bus_m'].values
+    gdf_pois_wgs84['d_parking_m'] = gdf_pois_utm['d_parking_m'].values
 
     gdf_pois_utm = calculate_icc(gdf_pois_utm)
     for col in ['w_cat', 'a_bus', 'q_data', 'icc_score']:
         gdf_pois_wgs84[col] = gdf_pois_utm[col].values
 
     gdf_hex_utm = generate_h3_grid(gdf_wgs84, gdf_utm, res=10)
-    gdf_hex_scored = calculate_scores_and_mixite(gdf_hex_utm, G_utm, gdf_pois_utm, gtfs_stops)
+    gdf_hex_scored, gdf_pois_utm = calculate_scores_and_mixite(gdf_hex_utm, G_utm, gdf_pois_utm, gtfs_stops)
+    gdf_pois_wgs84['categoria_secondaria'] = gdf_pois_utm['categoria_secondaria'].values
 
     export_results(gdf_hex_scored, gdf_utm, gdf_pois_wgs84)
 

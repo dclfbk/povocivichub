@@ -10,6 +10,7 @@ const PAGE_SIZE = 20;
 const COLUMNS = [
   { key: 'name', label: 'Nome', type: 'text', sortable: true },
   { key: 'category', label: 'Categoria', type: 'select', sortable: true },
+  { key: 'categoria_secondaria', label: 'Categoria Secondaria', type: 'select', sortable: true },
   { key: 'amenity_type', label: 'Tipo di Servizio', type: 'select', sortable: true },
   { key: 'accesso_pubblico', label: 'Accesso', type: 'select', sortable: true },
   { key: 'indirizzo', label: 'Indirizzo', type: 'text', sortable: true },
@@ -17,7 +18,7 @@ const COLUMNS = [
 ];
 
 export default function CategoryTablesModal({ isOpen, onClose, poisData, onSelectPoi }) {
-  const [columnFilters, setColumnFilters] = useState({ name: '', category: 'all', amenity_type: 'all', accesso_pubblico: 'all', indirizzo: '' });
+  const [columnFilters, setColumnFilters] = useState({ name: '', category: 'all', categoria_secondaria: 'all', amenity_type: 'all', accesso_pubblico: 'all', indirizzo: '' });
   const [sort, setSort] = useState({ key: 'name', direction: 'asc' });
   const [page, setPage] = useState(1);
 
@@ -45,29 +46,66 @@ export default function CategoryTablesModal({ isOpen, onClose, poisData, onSelec
     });
   }, [poisData]);
 
-  // Distinct "Tipo di Servizio" values actually present in the data, for the
-  // column's dropdown filter -- built from the data rather than hardcoded so
-  // it never drifts out of sync with what the pipeline actually produces.
-  const amenityTypeOptions = useMemo(() => {
-    const set = new Set(allRows.map((r) => r.amenity_type).filter(Boolean));
-    return Array.from(set).sort((a, b) => a.localeCompare(b, 'it'));
-  }, [allRows]);
-
-  const filteredRows = useMemo(() => {
+  // Applies every column filter except `exclude` -- used to figure out,
+  // per column, which option values would still yield at least one row
+  // given whatever's already selected elsewhere (2026-07-25 feedback: an
+  // empty category/type shouldn't be offered in its dropdown). Excel does
+  // the same thing: a column's filter list narrows down based on the other
+  // columns' active filters.
+  const applyFiltersExcept = (rows, exclude) => {
     const nameQ = columnFilters.name.trim().toLowerCase();
     const indirizzoQ = columnFilters.indirizzo.trim().toLowerCase();
-    return allRows.filter((row) => {
-      if (columnFilters.category !== 'all' && row.category !== columnFilters.category) return false;
-      if (columnFilters.amenity_type !== 'all' && row.amenity_type !== columnFilters.amenity_type) return false;
-      if (columnFilters.accesso_pubblico !== 'all') {
+    return rows.filter((row) => {
+      if (exclude !== 'category' && columnFilters.category !== 'all' && row.category !== columnFilters.category) return false;
+      if (exclude !== 'categoria_secondaria' && columnFilters.categoria_secondaria !== 'all') {
+        const secondary = (row.categoria_secondaria || '').split(',').filter(Boolean);
+        if (!secondary.includes(columnFilters.categoria_secondaria)) return false;
+      }
+      if (exclude !== 'amenity_type' && columnFilters.amenity_type !== 'all' && row.amenity_type !== columnFilters.amenity_type) return false;
+      if (exclude !== 'accesso_pubblico' && columnFilters.accesso_pubblico !== 'all') {
         const isPublic = row.accesso_pubblico !== false;
         if ((columnFilters.accesso_pubblico === 'true') !== isPublic) return false;
       }
-      if (nameQ && !(row.name || '').toLowerCase().includes(nameQ)) return false;
-      if (indirizzoQ && !(row.indirizzo || '').toLowerCase().includes(indirizzoQ)) return false;
+      if (exclude !== 'name' && nameQ && !(row.name || '').toLowerCase().includes(nameQ)) return false;
+      if (exclude !== 'indirizzo' && indirizzoQ && !(row.indirizzo || '').toLowerCase().includes(indirizzoQ)) return false;
       return true;
     });
+  };
+
+  // Category options: every ALL_POI_CATEGORIES entry that still has >=1 row
+  // given the other active filters, plus whatever's currently selected (so
+  // picking a filter never makes its own selected value vanish from the list).
+  const categoryOptions = useMemo(() => {
+    const present = new Set(applyFiltersExcept(allRows, 'category').map((r) => r.category));
+    return ALL_POI_CATEGORIES.filter((cat) => cat === columnFilters.category || present.has(cat));
   }, [allRows, columnFilters]);
+
+  const categoriaSecondariaOptions = useMemo(() => {
+    const rows = applyFiltersExcept(allRows, 'categoria_secondaria');
+    const present = new Set();
+    rows.forEach((r) => (r.categoria_secondaria || '').split(',').filter(Boolean).forEach((c) => present.add(c)));
+    return ALL_POI_CATEGORIES.filter((cat) => cat === columnFilters.categoria_secondaria || present.has(cat));
+  }, [allRows, columnFilters]);
+
+  // Same idea for "Tipo di Servizio" -- built from the data (not hardcoded)
+  // so it never drifts out of sync with what the pipeline actually produces,
+  // and narrowed by whatever else is currently filtered.
+  const amenityTypeOptions = useMemo(() => {
+    const rows = applyFiltersExcept(allRows, 'amenity_type');
+    const set = new Set(rows.map((r) => r.amenity_type).filter(Boolean));
+    if (columnFilters.amenity_type !== 'all') set.add(columnFilters.amenity_type);
+    return Array.from(set).sort((a, b) => a.localeCompare(b, 'it'));
+  }, [allRows, columnFilters]);
+
+  const accessOptions = useMemo(() => {
+    const rows = applyFiltersExcept(allRows, 'accesso_pubblico');
+    return {
+      showPublic: columnFilters.accesso_pubblico === 'true' || rows.some((r) => r.accesso_pubblico !== false),
+      showPrivate: columnFilters.accesso_pubblico === 'false' || rows.some((r) => r.accesso_pubblico === false)
+    };
+  }, [allRows, columnFilters]);
+
+  const filteredRows = useMemo(() => applyFiltersExcept(allRows, null), [allRows, columnFilters]);
 
   const sortedRows = useMemo(() => {
     const { key, direction } = sort;
@@ -128,13 +166,14 @@ export default function CategoryTablesModal({ isOpen, onClose, poisData, onSelec
 
         <div className="px-5 py-2.5 text-[11px] text-slate-400 border-b border-slate-800/60 shrink-0 space-y-1">
           <div>
-            I PoI di <span className="font-semibold" style={{ color: CATEGORY_STYLES.cross_civic.color }}>Verde Urbano &amp; Servizi Civici</span> sono
-            i "terzi luoghi" che uniscono le altre categorie: nel calcolo del punteggio degli esagoni contribuiscono sia a Residenti sia a Occasionali,
-            invece di formare un asse a s&eacute; stante. Clicca su una riga per vederlo sulla mappa.
+            I PoI di <span className="font-semibold" style={{ color: CATEGORY_STYLES.cross_civic.color }}>Luoghi Pubblici</span> sono
+            i "terzi luoghi" che uniscono le altre categorie. Clicca su una riga per vederla sulla mappa.
           </div>
           <div>
-            La colonna <span className="font-semibold text-slate-300">Accesso</span> indica se il luogo, a prescindere dalla sua categoria,
-            &egrave; liberamente utilizzabile anche da altre comunit&agrave; (es. un campo da calcio ad accesso pubblico lo pu&ograve; usare chiunque).
+            La colonna <span className="font-semibold text-slate-300">Categoria Secondaria</span> mostra le altre categorie a cui un PoI
+            contribuisce comunque nel calcolo (es. un campo da calcio ad accesso pubblico &egrave; classificato "Residenti" ma interessa anche
+            Pendolari e Occasionali). La colonna <span className="font-semibold text-slate-300">Accesso</span> indica invece se il luogo &egrave;
+            liberamente utilizzabile da chiunque, a prescindere dalla categoria.
           </div>
         </div>
 
@@ -183,7 +222,19 @@ export default function CategoryTablesModal({ isOpen, onClose, poisData, onSelec
                     className="w-full text-[11px] font-normal bg-slate-800/70 border border-slate-700 rounded-md px-2 py-1 text-slate-200 cursor-pointer focus:outline-none focus:ring-1 focus:ring-indigo-500"
                   >
                     <option value="all">Tutte</option>
-                    {ALL_POI_CATEGORIES.map((cat) => (
+                    {categoryOptions.map((cat) => (
+                      <option key={cat} value={cat}>{CATEGORY_STYLES[cat].label}</option>
+                    ))}
+                  </select>
+                </th>
+                <th className="px-4 pb-2">
+                  <select
+                    value={columnFilters.categoria_secondaria}
+                    onChange={(e) => setColumnFilter('categoria_secondaria', e.target.value)}
+                    className="w-full text-[11px] font-normal bg-slate-800/70 border border-slate-700 rounded-md px-2 py-1 text-slate-200 cursor-pointer focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                  >
+                    <option value="all">Tutte</option>
+                    {categoriaSecondariaOptions.map((cat) => (
                       <option key={cat} value={cat}>{CATEGORY_STYLES[cat].label}</option>
                     ))}
                   </select>
@@ -207,8 +258,8 @@ export default function CategoryTablesModal({ isOpen, onClose, poisData, onSelec
                     className="w-full text-[11px] font-normal bg-slate-800/70 border border-slate-700 rounded-md px-2 py-1 text-slate-200 cursor-pointer focus:outline-none focus:ring-1 focus:ring-indigo-500"
                   >
                     <option value="all">Tutti</option>
-                    <option value="true">Pubblico</option>
-                    <option value="false">Riservato</option>
+                    {accessOptions.showPublic && <option value="true">Pubblico</option>}
+                    {accessOptions.showPrivate && <option value="false">Riservato</option>}
                   </select>
                 </th>
                 <th className="px-4 pb-2">
@@ -246,6 +297,26 @@ export default function CategoryTablesModal({ isOpen, onClose, poisData, onSelec
                         {style.label}
                       </span>
                     </td>
+                    <td className="px-4 py-2">
+                      {(row.categoria_secondaria || '').split(',').filter(Boolean).length > 0 ? (
+                        <div className="flex flex-wrap gap-1">
+                          {row.categoria_secondaria.split(',').filter(Boolean).map((cat) => {
+                            const secStyle = CATEGORY_STYLES[cat] || { label: cat, color: '#94a3b8' };
+                            return (
+                              <span
+                                key={cat}
+                                className="px-1.5 py-0.5 rounded text-[10px] font-semibold whitespace-nowrap"
+                                style={{ backgroundColor: `${secStyle.color}22`, color: secStyle.color, border: `1px solid ${secStyle.color}55` }}
+                              >
+                                {secStyle.label}
+                              </span>
+                            );
+                          })}
+                        </div>
+                      ) : (
+                        <span className="text-slate-600">—</span>
+                      )}
+                    </td>
                     <td className="px-4 py-2 text-slate-400">{row.amenity_type || '—'}</td>
                     <td className="px-4 py-2">
                       {row.accesso_pubblico !== false ? (
@@ -270,7 +341,7 @@ export default function CategoryTablesModal({ isOpen, onClose, poisData, onSelec
               })}
               {pageRows.length === 0 && (
                 <tr>
-                  <td colSpan={7} className="px-4 py-8 text-center text-slate-500 italic">
+                  <td colSpan={8} className="px-4 py-8 text-center text-slate-500 italic">
                     Nessun PoI corrisponde ai filtri.
                   </td>
                 </tr>

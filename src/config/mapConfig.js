@@ -7,7 +7,7 @@ export const CATEGORY_STYLES = {
   residenti: { label: 'Residenti', color: '#60a5fa', icon: Home },
   pendolari: { label: 'Pendolari', color: '#fbbf24', icon: Bus },
   occasionali: { label: 'Occasionali', color: '#f472b6', icon: Trees },
-  cross_civic: { label: 'Verde Urbano & Servizi Civici', color: '#34d399', icon: BookOpen }
+  cross_civic: { label: 'Luoghi Pubblici', color: '#34d399', icon: BookOpen }
 };
 
 export const ALL_POI_CATEGORIES = Object.keys(CATEGORY_STYLES);
@@ -276,6 +276,9 @@ export const ICON_VISUALS = {
   copyshop: { emoji: '🖨️', color: CATEGORY_STYLES.pendolari.color },
   office_it: { emoji: '💻', color: CATEGORY_STYLES.pendolari.color },
   sport: { emoji: '⚽', color: CATEGORY_STYLES.residenti.color },
+  basketball_court: { emoji: '🏀', color: CATEGORY_STYLES.residenti.color },
+  volleyball_court: { emoji: '🏐', color: CATEGORY_STYLES.residenti.color },
+  tennis_court: { emoji: '🎾', color: CATEGORY_STYLES.residenti.color },
   park: { emoji: '🌳', color: CATEGORY_STYLES.cross_civic.color },
   drinking_water: { emoji: '🚰', color: CATEGORY_STYLES.cross_civic.color },
   bench: { emoji: '🪑', color: CATEGORY_STYLES.cross_civic.color },
@@ -325,8 +328,10 @@ const SUB_TYPE_LABELS = {
   artwork: "Opera d'Arte Pubblica",
   viewpoint: 'Punto Panoramico',
   picnic_site: 'Area Picnic',
-  guest_house: 'Agriturismo',
-  hotel: 'Hotel',
+  // Affittacamere/guest house/hotel/agriturismo all read as the same kind of
+  // thing to a visitor, so they share one label (2026-07-25 feedback).
+  guest_house: 'Struttura Ricettiva',
+  hotel: 'Struttura Ricettiva',
   chalet: 'Chalet',
   camp_site: 'Campeggio',
   alpine_hut: 'Rifugio Alpino',
@@ -408,6 +413,7 @@ export function buildPoiPopupHtml(props) {
   const imageSrc = props.image_url && props.image_url.length > 0
     ? props.image_url
     : buildPlaceholderImageDataUri(props.icon_name);
+  const secondaryCategories = (props.categoria_secondaria || '').split(',').filter(Boolean);
 
   return `
     <div style="font-family: Inter, sans-serif; width: 240px;">
@@ -424,6 +430,16 @@ export function buildPoiPopupHtml(props) {
           <span style="display: inline-block; margin-top: 6px; margin-left: 4px; padding: 3px 9px; border-radius: 999px; font-size: 10px; font-weight: 700; color: #065f46; background: #6ee7b7;">
             🌐 Accesso Pubblico
           </span>
+        ` : ''}
+        ${secondaryCategories.length > 0 ? `
+          <div style="margin-top: 6px;">
+            ${secondaryCategories.map((cat) => {
+              const secBadge = POPUP_CATEGORY_BADGES[cat] || { label: cat, color: '#94a3b8' };
+              return `<span style="display: inline-block; margin-top: 2px; margin-right: 4px; padding: 2px 8px; border-radius: 999px; font-size: 9px; font-weight: 700; color: ${secBadge.color}; background: #ffffff; border: 1.5px solid ${secBadge.color};">
+                + ${secBadge.label}
+              </span>`;
+            }).join('')}
+          </div>
         ` : ''}
         ${serviceType ? `
           <div style="font-size: 11px; color: #64748b; margin-top: 6px; font-weight: 600;">
@@ -455,7 +471,7 @@ export function formatSubType(subType) {
 // that single surface, distinct from CATEGORY_STYLES (used for map icon colors,
 // the layer-switcher chips, and the legend) which stays unchanged elsewhere.
 export const POPUP_CATEGORY_BADGES = {
-  cross_civic: { label: 'Verde Urbano & Servizi Civici', color: '#10b981' }, // verde
+  cross_civic: { label: 'Luoghi Pubblici', color: '#10b981' }, // verde
   residenti: { label: 'Servizi per Residenti', color: '#3b82f6' }, // blu
   pendolari: { label: 'Flussi Pendolari & Uni', color: '#f97316' }, // arancione
   occasionali: { label: 'Outdoor, Memoria & Sport', color: '#8b5cf6' } // viola
