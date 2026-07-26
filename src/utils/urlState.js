@@ -14,7 +14,10 @@ const GRID_METRIC_FROM_CODE = Object.fromEntries(
   Object.entries(GRID_METRIC_CODES).map(([key, code]) => [code, key])
 );
 
-const MAP_STYLE_CODES = { liberty: 'l', positron: 'p', bright: 'b', dark: 'k', fiord: 'f', aerial: 'a' };
+const MAP_STYLE_CODES = {
+  liberty: 'l', positron: 'p', bright: 'b', dark: 'k', fiord: 'f', aerial: 'a',
+  'street-it': 's', 'hiking-it': 'h', 'cycling-it': 'y'
+};
 const MAP_STYLE_FROM_CODE = Object.fromEntries(
   Object.entries(MAP_STYLE_CODES).map(([key, code]) => [code, key])
 );

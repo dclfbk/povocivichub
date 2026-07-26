@@ -13,16 +13,22 @@ export const CATEGORY_STYLES = {
 export const ALL_POI_CATEGORIES = Object.keys(CATEGORY_STYLES);
 
 // Selectable background maps. The first 5 are complete OpenFreeMap vector
-// styles (fetched as a style.json URL); 'aerial' is a single raster XYZ
-// layer (2019 Trento orthophoto), not a full style, so Map.jsx builds a
-// minimal raster-only style object for it instead of passing the tile URL
-// straight to setStyle.
+// styles (fetched as a style.json URL); 'street-it'/'hiking-it'/'cycling-it'
+// are MapToolkit's Italian-localized vector styles, added 2026-07-26 --
+// 'hiking-it' is the default (it surfaces trail/outdoor detail relevant to
+// this project's outdoor-sport focus, see [[project_outdoor_sport_focus]]
+// in project memory); 'aerial' is a single raster XYZ layer (2019 Trento
+// orthophoto), not a full style, so Map.jsx builds a minimal raster-only
+// style object for it instead of passing the tile URL straight to setStyle.
 export const MAP_STYLES = {
   liberty: { label: 'Liberty', url: 'https://tiles.openfreemap.org/styles/liberty' },
   positron: { label: 'Positron', url: 'https://tiles.openfreemap.org/styles/positron' },
   bright: { label: 'Bright', url: 'https://tiles.openfreemap.org/styles/bright' },
   dark: { label: 'Dark', url: 'https://tiles.openfreemap.org/styles/dark' },
   fiord: { label: 'Fiord', url: 'https://tiles.openfreemap.org/styles/fiord' },
+  'street-it': { label: 'Stradale (IT)', url: 'https://styles.maptoolkit.org/street-it.json' },
+  'hiking-it': { label: 'Escursionismo (IT)', url: 'https://styles.maptoolkit.org/hiking-it.json' },
+  'cycling-it': { label: 'Cicloturismo (IT)', url: 'https://styles.maptoolkit.org/cycling-it.json' },
   aerial: {
     label: 'Ortofotocarta Trento 2019',
     // The given tiles.openaerialmap.org URL 302-redirects to this exact
@@ -39,7 +45,7 @@ export const MAP_STYLES = {
     ]
   }
 };
-export const DEFAULT_MAP_STYLE = 'liberty';
+export const DEFAULT_MAP_STYLE = 'hiking-it';
 
 // Heatmap radius: user-adjustable via the sidebar slider (2026-07-26
 // feedback). The slider value is the radius (px) at zoom 15; zoom 11 scales
@@ -129,6 +135,75 @@ export function computePoiStatsInPolygon(polygonGeom, poisGeoJSON) {
   return { counts, total, avgIcc: iccCount > 0 ? iccSum / iccCount : null };
 }
 
+// Approximates an H3 hexagon's centroid by averaging its ring vertices
+// (skipping the closing duplicate) -- good enough to test "is this hexagon
+// inside this area", not meant as a precise area centroid.
+function hexCentroidApprox(geometry) {
+  if (!geometry || geometry.type !== 'Polygon') return null;
+  const ring = geometry.coordinates[0];
+  if (!ring || ring.length < 2) return null;
+  const pts = ring.slice(0, -1);
+  const sum = pts.reduce((acc, [lng, lat]) => [acc[0] + lng, acc[1] + lat], [0, 0]);
+  return [sum[0] / pts.length, sum[1] / pts.length];
+}
+
+// Averages res_score/comm_score/occa_score/mix_index across a set of hex
+// feature properties -- NOT a recomputed formula, just the mean of values
+// the pipeline already calculated per-hexagon (2026-07-26 feedback: an
+// independent client-side entropy-over-raw-PoI-counts formula, tried first,
+// nearly always saturated close to 100% -- real neighbourhoods are "diverse
+// enough" for Shannon entropy over counts alone to read as maxed out; see
+// GRID_METRICS.mix_index.info). Returns null if no hexagons matched.
+function averageHexProps(propsList) {
+  const n = propsList.length;
+  if (n === 0) return null;
+  const sums = { res_score: 0, comm_score: 0, occa_score: 0, mix_index: 0 };
+  for (const p of propsList) {
+    sums.res_score += parseFloat(p.res_score) || 0;
+    sums.comm_score += parseFloat(p.comm_score) || 0;
+    sums.occa_score += parseFloat(p.occa_score) || 0;
+    sums.mix_index += parseFloat(p.mix_index) || 0;
+  }
+  return {
+    res_score: sums.res_score / n,
+    comm_score: sums.comm_score / n,
+    occa_score: sums.occa_score / n,
+    mix_index: sums.mix_index / n,
+    n_hex: n
+  };
+}
+
+// Aggregate hex-grid scores for whichever hexagons' centroid falls inside a
+// simple lng/lat bounding box -- backs the "map extent" Polifunzionalità
+// reading (2026-07-26 feedback: the index should reflect the current map
+// view when nothing is selected/drawn), using the map's own current bounds
+// (Map.jsx reports these via onViewportBoundsChange).
+export function aggregateHexScoresInBounds(gridGeoJSON, bounds) {
+  if (!bounds || !gridGeoJSON) return null;
+  const { minLng, minLat, maxLng, maxLat } = bounds;
+  const matches = [];
+  for (const feature of gridGeoJSON.features || []) {
+    const c = hexCentroidApprox(feature.geometry);
+    if (!c) continue;
+    const [lng, lat] = c;
+    if (lng < minLng || lng > maxLng || lat < minLat || lat > maxLat) continue;
+    matches.push(feature.properties);
+  }
+  return averageHexProps(matches);
+}
+
+// Same as above, but against a drawn polygon instead of a bounding box.
+export function aggregateHexScoresInPolygon(gridGeoJSON, polygonGeom) {
+  if (!polygonGeom || !gridGeoJSON) return null;
+  const matches = [];
+  for (const feature of gridGeoJSON.features || []) {
+    const c = hexCentroidApprox(feature.geometry);
+    if (!c || !booleanPointInPolygon(c, polygonGeom)) continue;
+    matches.push(feature.properties);
+  }
+  return averageHexProps(matches);
+}
+
 // Builds the {key, label, color, value, percentage} segments consumed by
 // CategoryStackedBar from a plain {category: count} map.
 export function buildCategorySegments(counts) {
@@ -182,7 +257,9 @@ export const GRID_METRICS = {
   mix_index: {
     label: 'Indice di Polifunzionalità',
     stops: [[0.0, '#312e81'], [0.2, '#3b82f6'], [0.45, '#10b981'], [0.75, '#f59e0b'], [1.0, '#ec4899']],
-    info: 'Misura quanto un’area riesce a mescolare bene funzioni diverse — abitare, studiare/lavorare, tempo libero — invece di essere dedicata a una sola cosa. Va da 0 (l’area serve praticamente a una sola funzione) a 1 (le funzioni sono ben bilanciate tra loro). Un valore alto indica un quartiere vivo e polifunzionale.'
+    info: 'Misura quanto un’area riesce a mescolare bene funzioni diverse — abitare, studiare/lavorare, tempo libero — invece di essere dedicata a una sola cosa. Va da 0 (l’area serve praticamente a una sola funzione) a 1 (le funzioni sono ben bilanciate tra loro). ' +
+      'Formula per esagono: Polifunzionalità = −Σ pᵢ·ln(pᵢ) / ln(3), dove pᵢ è la quota (0–1) di presenza di ciascuna categoria (Residenti/Pendolari/Occasionali — i Luoghi Pubblici alimentano queste tre invece di averne una propria) sul totale dell’esagono, dopo aver normalizzato i punteggi su tutta la griglia e pesato anche la frequenza dei mezzi pubblici. ' +
+      'Per un’area disegnata o per la porzione di mappa attualmente visibile il valore mostrato è la MEDIA dei valori già calcolati degli esagoni che ricadono in quell’area (non una nuova formula) — un’area piccola o poco significativa può quindi non avere nessun esagono dentro, e mostrare un valore vuoto/zero.'
   },
   res_score: {
     label: 'Presenza Servizi Residenziali',
@@ -340,7 +417,48 @@ export const ICON_VISUALS = {
   townhall: { emoji: '🏢', color: '#94a3b8' },
   social_facility: { emoji: '🫂', color: '#94a3b8' },
   shelter: { emoji: '🛖', color: '#94a3b8' },
-  square: { emoji: '🏙️', color: '#94a3b8' }
+  square: { emoji: '🏙️', color: '#94a3b8' },
+  // Reference-only PoIs (2026-07-26 feedback): shown with a distinct gray
+  // glyph, same treatment as the other "identifiable but not a social-
+  // function category" icons above -- these are excluded from indicator
+  // scoring (solo_riferimento=True, see build_data.py) but still fully
+  // queryable via the popup.
+  parking: { emoji: '🅿️', color: '#94a3b8' },
+  recycling: { emoji: '♻️', color: '#94a3b8' },
+  // Neighbourhood-service icons added 2026-07-26 (audited every OSM tag the
+  // pipeline fetches, plus every local-dataset keyword, against this map and
+  // filled every gap that used to fall back to the generic 'marker' pin).
+  school: { emoji: '🏫', color: CATEGORY_STYLES.residenti.color },
+  kindergarten: { emoji: '🧸', color: CATEGORY_STYLES.residenti.color },
+  pharmacy: { emoji: '💊', color: CATEGORY_STYLES.residenti.color },
+  post_office: { emoji: '📮', color: CATEGORY_STYLES.residenti.color },
+  bank: { emoji: '🏦', color: CATEGORY_STYLES.residenti.color },
+  atm: { emoji: '💳', color: CATEGORY_STYLES.residenti.color },
+  fire_station: { emoji: '🚒', color: CATEGORY_STYLES.residenti.color },
+  clinic: { emoji: '🩺', color: CATEGORY_STYLES.residenti.color },
+  supermarket: { emoji: '🏪', color: CATEGORY_STYLES.residenti.color },
+  bakery: { emoji: '🥖', color: CATEGORY_STYLES.residenti.color },
+  convenience: { emoji: '🏬', color: CATEGORY_STYLES.residenti.color },
+  butcher: { emoji: '🥩', color: CATEGORY_STYLES.residenti.color },
+  greengrocer: { emoji: '🥬', color: CATEGORY_STYLES.residenti.color },
+  books: { emoji: '📖', color: CATEGORY_STYLES.residenti.color },
+  beauty: { emoji: '💅', color: CATEGORY_STYLES.residenti.color },
+  hairdresser: { emoji: '💇', color: CATEGORY_STYLES.residenti.color },
+  deli: { emoji: '🍖', color: CATEGORY_STYLES.residenti.color },
+  sports_hall: { emoji: '🏋️', color: CATEGORY_STYLES.residenti.color },
+  playground: { emoji: '🛝', color: CATEGORY_STYLES.residenti.color },
+  fitness_station: { emoji: '💪', color: CATEGORY_STYLES.residenti.color },
+  workshop: { emoji: '🔧', color: CATEGORY_STYLES.residenti.color },
+  photo_booth: { emoji: '📸', color: CATEGORY_STYLES.residenti.color },
+  nursing_home: { emoji: '🧓', color: CATEGORY_STYLES.residenti.color },
+  // Canteen (mensa) is classified pendolari, distinct from the occasionali-
+  // colored 'restaurant' icon it would otherwise share.
+  canteen: { emoji: '🍽️', color: CATEGORY_STYLES.pendolari.color },
+  // Outdoor/occasionali-colored additions.
+  nature_reserve: { emoji: '🌲', color: CATEGORY_STYLES.occasionali.color },
+  mountain_shelter: { emoji: '🏔️', color: CATEGORY_STYLES.occasionali.color },
+  pizza: { emoji: '🍕', color: CATEGORY_STYLES.occasionali.color },
+  gelateria: { emoji: '🍦', color: CATEGORY_STYLES.occasionali.color }
 };
 
 // Renders a colored circular badge with an emoji glyph onto an offscreen canvas,
@@ -419,7 +537,7 @@ const SUB_TYPE_LABELS = {
   copyshop: 'Copisteria',
   beauty: 'Centro Estetico',
   hairdresser: 'Parrucchiere',
-  deli: 'Rosticceria',
+  deli: 'Gastronomia',
   association: 'Associazione / Circolo',
   ngo: 'Associazione / ONG',
   wilderness_hut: 'Bivacco',
@@ -441,7 +559,21 @@ const SUB_TYPE_LABELS = {
   information: 'Punto Informativo',
   it: 'Azienda ICT',
   research: 'Ufficio di Ricerca',
-  educational_institution: 'Istituto Formativo'
+  educational_institution: 'Istituto Formativo',
+  // Mirrors AMENITY_TYPE_LABELS_IT additions in build_data.py (2026-07-26).
+  pharmacy: 'Farmacia',
+  supermarket: 'Supermercato',
+  convenience: 'Minimarket',
+  butcher: 'Macelleria',
+  greengrocer: 'Fruttivendolo',
+  chemist: 'Drogheria',
+  books: 'Libreria',
+  atm: 'Bancomat',
+  marketplace: 'Mercato Rionale',
+  fire_station: 'Vigili del Fuoco',
+  clinic: 'Ambulatorio Medico',
+  doctors: 'Studio Medico',
+  nature_reserve: 'Riserva Naturale'
 };
 
 // Placeholder banner (data: URI, no network request) shown in the PoI popup
@@ -464,10 +596,15 @@ export function buildPlaceholderImageDataUri(iconName) {
 // fatica che si fa a piedi").
 const FATICA_DISPLAY_THRESHOLD_PCT = 10;
 
+// Popup text colors are tuned for the dark popup background index.css
+// forces (`.maplibregl-popup-content { background: rgba(15, 23, 42, 0.95) }`)
+// -- an earlier version used dark slate grays meant for a white background,
+// which read as near-illegible dark-on-dark (2026-07-26 feedback: "il
+// bianco è meglio del grigio visto che lo sfondo è nero").
 function fatigueSuffix(pct) {
   if (typeof pct !== 'number' || pct <= FATICA_DISPLAY_THRESHOLD_PCT) return '';
   const glyph = pct > 40 ? '🥾' : '⛰️';
-  return ` <span style="color: #b45309;">${glyph} +${Math.round(pct)}% fatica</span>`;
+  return ` <span style="color: #fbbf24;">${glyph} +${Math.round(pct)}% fatica</span>`;
 }
 
 // One row for a walking-reachability target (bus/parking): distance in
@@ -477,7 +614,7 @@ function fatigueSuffix(pct) {
 function reachabilityRow(icon, label, distanceM, timeMin, fatiguePct) {
   if (typeof distanceM !== 'number' || typeof timeMin !== 'number') return '';
   return `
-    <div style="font-size: 11px; color: #334155; margin-top: 3px;">
+    <div style="font-size: 11px; color: #e2e8f0; margin-top: 3px;">
       ${icon} ${label}: <strong>${Math.round(distanceM)} m</strong> · ~${timeMin.toFixed(0)} min a piedi${fatigueSuffix(fatiguePct)}
     </div>
   `;
@@ -486,7 +623,7 @@ function reachabilityRow(icon, label, distanceM, timeMin, fatiguePct) {
 function detailRow(icon, label, value) {
   if (!value || String(value).trim().length === 0) return '';
   return `
-    <div style="font-size: 11px; color: #334155; margin-top: 3px;">
+    <div style="font-size: 11px; color: #e2e8f0; margin-top: 3px;">
       ${icon} ${label}: ${value}
     </div>
   `;
@@ -524,7 +661,7 @@ export function buildPoiPopupHtml(props) {
     detailRow('☎️', 'Contatti', props.contatti),
     props.sito_web ? `
       <div style="font-size: 11px; margin-top: 3px;">
-        🌐 <a href="${props.sito_web}" target="_blank" rel="noopener noreferrer" style="color: #4f46e5; text-decoration: underline;">Sito web</a>
+        🌐 <a href="${props.sito_web}" target="_blank" rel="noopener noreferrer" style="color: #a5b4fc; text-decoration: underline;">Sito web</a>
       </div>
     ` : ''
   ].filter(Boolean).join('');
@@ -534,7 +671,7 @@ export function buildPoiPopupHtml(props) {
       <img src="${imageSrc}" alt=""
            style="width: 100%; height: 120px; object-fit: cover; display: block;" />
       <div style="padding: 12px;">
-        <div style="font-weight: 700; font-size: 14px; color: #0f172a; line-height: 1.3;">
+        <div style="font-weight: 700; font-size: 14px; color: #ffffff; line-height: 1.3;">
           ${props.name && props.name.length > 0 ? props.name : 'Punto di interesse'}
         </div>
         <span style="display: inline-block; margin-top: 6px; padding: 3px 9px; border-radius: 999px; font-size: 10px; font-weight: 700; color: #ffffff; background: ${badge.color};">
@@ -543,6 +680,11 @@ export function buildPoiPopupHtml(props) {
         ${props.accesso_pubblico !== false ? `
           <span style="display: inline-block; margin-top: 6px; margin-left: 4px; padding: 3px 9px; border-radius: 999px; font-size: 10px; font-weight: 700; color: #065f46; background: #6ee7b7;">
             🌐 Accesso Pubblico
+          </span>
+        ` : ''}
+        ${props.solo_riferimento ? `
+          <span style="display: inline-block; margin-top: 6px; margin-left: 4px; padding: 3px 9px; border-radius: 999px; font-size: 10px; font-weight: 700; color: #475569; background: #e2e8f0;">
+            ℹ️ Solo riferimento (escluso dagli indicatori)
           </span>
         ` : ''}
         ${secondaryCategories.length > 0 ? `
@@ -556,21 +698,21 @@ export function buildPoiPopupHtml(props) {
           </div>
         ` : ''}
         ${serviceType ? `
-          <div style="font-size: 11px; color: #64748b; margin-top: 6px; font-weight: 600;">
+          <div style="font-size: 11px; color: #cbd5e1; margin-top: 6px; font-weight: 600;">
             ${serviceType}
           </div>
         ` : ''}
         ${detailsHtml ? `
-          <div style="margin-top: 8px; padding-top: 8px; border-top: 1px solid #e2e8f0;">
+          <div style="margin-top: 8px; padding-top: 8px; border-top: 1px solid rgba(255,255,255,0.15);">
             ${detailsHtml}
           </div>
         ` : ''}
         ${hasSocialFunction ? `
-          <div style="margin-top: 10px; padding-top: 8px; border-top: 1px solid #e2e8f0;">
-            <div style="font-size: 10px; font-weight: 700; color: #6366f1; text-transform: uppercase; letter-spacing: 0.05em;">
+          <div style="margin-top: 10px; padding-top: 8px; border-top: 1px solid rgba(255,255,255,0.15);">
+            <div style="font-size: 10px; font-weight: 700; color: #a5b4fc; text-transform: uppercase; letter-spacing: 0.05em;">
               Funzione Civica e Sociale
             </div>
-            <div style="font-size: 11px; color: #334155; margin-top: 4px; line-height: 1.4;">
+            <div style="font-size: 11px; color: #e2e8f0; margin-top: 4px; line-height: 1.4;">
               ${props.social_function}
             </div>
           </div>

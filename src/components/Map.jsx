@@ -8,6 +8,7 @@ import {
   CLUSTER_CATEGORY_PROPERTIES,
   createPoiIconImage,
   computePoiStatsInPolygon,
+  aggregateHexScoresInPolygon,
   buildMapStyleDefinition,
   computeBboxFromGeoJSON,
   buildPoiPopupHtml,
@@ -35,6 +36,7 @@ export default function Map({
   heatmapRadius,
   hexValueRange,
   poisData,
+  gridData,
   drawMode,
   onDrawComplete,
   clearDrawSignal,
@@ -42,7 +44,8 @@ export default function Map({
   flyToTarget,
   initialViewState,
   initialSelectedHexId,
-  onViewStateChange
+  onViewStateChange,
+  onViewportBoundsChange
 }) {
   const mapContainerRef = useRef(null);
   const mapRef = useRef(null);
@@ -50,12 +53,34 @@ export default function Map({
   const drawModeRef = useRef(false);
   const drawPointsRef = useRef([]);
   const poisDataRef = useRef(poisData);
-  const didMountStyleRef = useRef(false);
+  const gridDataRef = useRef(gridData);
+  // Tracks the mapStyle value already applied to the live map, so the
+  // basemap-switch effect below can tell "prop actually changed" apart from
+  // "React re-ran this effect without mapStyle changing" -- the latter
+  // happens every mount under React.StrictMode (dev only), which
+  // double-invokes effects to surface missing-cleanup bugs. A boolean
+  // "did this run once already" ref (the previous approach) breaks under
+  // that double-invoke: it flips true on the first (skipped) run and stays
+  // true, so the second synthetic run no longer recognizes itself as "the
+  // initial mount" and incorrectly calls map.setStyle()+addCustomLayers()
+  // again on the SAME still-live map -- colliding with the sources the
+  // mount effect's own 'load' handler already added ("Source aws-terrain
+  // already exists", confirmed via a headless-browser repro) and, because
+  // that exception aborts the mount's 'load' callback before it reaches
+  // `setLoaded(true)`, permanently disables every layer-visibility toggle
+  // in the sidebar (Sidebar effects below all bail out on `!loaded`).
+  // Comparing against the actual last-applied value is idempotent no matter
+  // how many times the effect body re-runs for the same mapStyle.
+  const appliedMapStyleRef = useRef(mapStyle);
   const didInitTerrainRef = useRef(false);
   const onViewStateChangeRef = useRef(onViewStateChange);
   useEffect(() => {
     onViewStateChangeRef.current = onViewStateChange;
   }, [onViewStateChange]);
+  const onViewportBoundsChangeRef = useRef(onViewportBoundsChange);
+  useEffect(() => {
+    onViewportBoundsChangeRef.current = onViewportBoundsChange;
+  }, [onViewportBoundsChange]);
 
   // Latest prop values, kept in refs so the layer-(re)creation logic below
   // (shared between the initial mount and every basemap-style switch) always
@@ -69,12 +94,22 @@ export default function Map({
     poisDataRef.current = poisData;
   }, [poisData]);
 
+  useEffect(() => {
+    gridDataRef.current = gridData;
+  }, [gridData]);
+
   // Adds every custom source/layer this app overlays on top of whichever
   // basemap style is currently active. Called once on mount, and again after
   // every map.setStyle() call (setStyle wipes all sources/layers -- runtime
   // symbol images added via addImage are cleared too, but self-heal via the
   // 'styleimagemissing' handler registered once below).
   const addCustomLayers = (map) => {
+    // Idempotency guard: harmless if this is ever invoked twice on the same
+    // still-set-up map (e.g. a stray double-invoke) -- addSource() throws on
+    // a duplicate id otherwise, which would abort the rest of this function
+    // (including the hex-grid layers) partway through.
+    if (map.getSource('aws-terrain')) return;
+
     map.addSource('aws-terrain', {
       type: 'raster-dem',
       tiles: ['https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png'],
@@ -275,6 +310,13 @@ export default function Map({
   useEffect(() => {
     if (!mapContainerRef.current) return;
 
+    // Set by the cleanup below -- guards the async 'load' callback so it
+    // becomes a no-op if this particular effect instance was already torn
+    // down (e.g. React.StrictMode's dev-only mount/cleanup/remount replay)
+    // before the map finished loading, rather than running full setup
+    // (including setLoaded(true)) against a removed map.
+    let cancelled = false;
+
     const ivs = initialViewState || {};
     const map = new maplibregl.Map({
       container: mapContainerRef.current,
@@ -305,6 +347,7 @@ export default function Map({
     });
 
     map.on('load', () => {
+      if (cancelled) return;
       addCustomLayers(map);
 
       // Zoomed-out limit: 2 zoom levels beyond whatever level exactly fits
@@ -402,17 +445,29 @@ export default function Map({
       // Report the settled camera back up to App on every pan/zoom/rotate/
       // pitch (MapLibre fires 'moveend' for all of these), so the URL can
       // stay in sync with whatever's actually on screen.
-      map.on('moveend', () => {
-        if (!onViewStateChangeRef.current) return;
-        const center = map.getCenter();
-        onViewStateChangeRef.current({
-          lat: center.lat,
-          lon: center.lng,
-          zoom: map.getZoom(),
-          bearing: map.getBearing(),
-          pitch: map.getPitch()
+      const reportViewportBounds = () => {
+        if (!onViewportBoundsChangeRef.current) return;
+        const b = map.getBounds();
+        onViewportBoundsChangeRef.current({
+          minLng: b.getWest(), minLat: b.getSouth(), maxLng: b.getEast(), maxLat: b.getNorth()
         });
+      };
+      map.on('moveend', () => {
+        if (onViewStateChangeRef.current) {
+          const center = map.getCenter();
+          onViewStateChangeRef.current({
+            lat: center.lat,
+            lon: center.lng,
+            zoom: map.getZoom(),
+            bearing: map.getBearing(),
+            pitch: map.getPitch()
+          });
+        }
+        reportViewportBounds();
       });
+      // Fires once up front too, so the "map extent" Polifunzionalità reading
+      // (2026-07-26 feedback) has a value before the user pans/zooms at all.
+      reportViewportBounds();
 
       // Click on background map deselects the hexagon.
       map.on('click', (e) => {
@@ -459,6 +514,7 @@ export default function Map({
     });
 
     return () => {
+      cancelled = true;
       map.remove();
       mapRef.current = null;
     };
@@ -482,10 +538,8 @@ export default function Map({
   // 'style.load' and gives us a clean slate to rebuild on, matching what the
   // comments below already assumed was happening.
   useEffect(() => {
-    if (!didMountStyleRef.current) {
-      didMountStyleRef.current = true;
-      return;
-    }
+    if (appliedMapStyleRef.current === mapStyle) return;
+    appliedMapStyleRef.current = mapStyle;
     const map = mapRef.current;
     if (!map) return;
 
@@ -605,6 +659,12 @@ export default function Map({
       }
 
       const stats = computePoiStatsInPolygon(polygonGeom, poisDataRef.current);
+      // Polifunzionalità for a drawn area is the average of the pipeline's
+      // own precomputed hex scores, same as the "map extent" reading in
+      // App.jsx -- not a separate formula (see hexAgg's null-safe use in
+      // Sidebar.jsx when no hexagon centroid falls inside a small/oddly
+      // placed shape).
+      stats.hexAgg = aggregateHexScoresInPolygon(gridDataRef.current, polygonGeom);
       if (onDrawComplete) onDrawComplete(stats);
     };
 

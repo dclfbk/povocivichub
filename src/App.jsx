@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import Map from './components/Map';
 import Sidebar from './components/Sidebar';
 import AboutModal from './components/AboutModal';
@@ -6,7 +6,7 @@ import CategoryTablesModal from './components/CategoryTablesModal';
 import CookieConsent from './components/CookieConsent';
 import { Menu, X, Layers } from 'lucide-react';
 import { parseUrlState, buildUrlSearch } from './utils/urlState';
-import { DEFAULT_HEATMAP_RADIUS } from './config/mapConfig';
+import { DEFAULT_HEATMAP_RADIUS, aggregateHexScoresInBounds } from './config/mapConfig';
 
 const INTRO_SEEN_KEY = 'povoCivicHub_introSeen';
 const COOKIE_CONSENT_KEY = 'povoCivicHub_cookieConsent';
@@ -72,17 +72,40 @@ export default function App() {
   // Loaded once for JS-side use (draw-tool point-in-polygon stats, the PoI
   // tables modal) -- separate from the copy MapLibre loads for rendering.
   const [poisData, setPoisData] = useState(null);
+  // Loaded once so the "map extent" Polifunzionalità reading below can
+  // aggregate the pipeline's own precomputed per-hexagon scores -- separate
+  // from the copy MapLibre loads for rendering the grid layer.
+  const [gridData, setGridData] = useState(null);
 
   // Draw-an-area tool state.
   const [drawMode, setDrawMode] = useState(false);
   const [drawnAreaStats, setDrawnAreaStats] = useState(null);
   const [clearDrawSignal, setClearDrawSignal] = useState(0);
 
+  // Current map viewport (reported by Map on load + every moveend), used to
+  // compute a live "map extent" Polifunzionalità reading when nothing else is
+  // selected/drawn (2026-07-26 feedback: "l'indice ... sulla base dell'extent
+  // della mappa ... se non faccio nulla"). This averages the mix_index/
+  // res_score/comm_score/occa_score the pipeline already computed for every
+  // hexagon whose centroid falls in view -- NOT an independently recomputed
+  // formula (an earlier attempt using Shannon entropy over raw PoI counts in
+  // view was scrapped: it saturates near 100% for almost any real area,
+  // see [[feature_solo_riferimento_osmid_percent_mixindex]] project memory).
+  const [viewportBounds, setViewportBounds] = useState(null);
+  const mapExtentHexStats = useMemo(
+    () => aggregateHexScoresInBounds(gridData, viewportBounds),
+    [viewportBounds, gridData]
+  );
+
   useEffect(() => {
     fetch('./data/povo_pois.json')
       .then((res) => res.json())
       .then(setPoisData)
       .catch((err) => console.error('Failed to load povo_pois.json', err));
+    fetch('./data/povo_grid.json')
+      .then((res) => res.json())
+      .then(setGridData)
+      .catch((err) => console.error('Failed to load povo_grid.json', err));
   }, []);
 
   // Keep the URL in sync with everything visible on screen, so copying the
@@ -109,6 +132,10 @@ export default function App() {
   };
 
   const handleStartDraw = () => {
+    // Deselect any hexagon so the Polifunzionalità card's context switches
+    // to the area being drawn instead of staying stuck on the old hex
+    // selection (hex > drawn-area > map-extent priority, see Sidebar).
+    setSelectedHex(null);
     setDrawnAreaStats(null);
     setDrawMode(true);
   };
@@ -197,6 +224,7 @@ export default function App() {
           onClearDrawnArea={handleClearDrawnArea}
           mapStyle={mapStyle}
           onChangeMapStyle={setMapStyle}
+          mapExtentHexStats={mapExtentHexStats}
         />
       </div>
 
@@ -213,6 +241,7 @@ export default function App() {
           heatmapRadius={heatmapRadius}
           hexValueRange={hexValueRange}
           poisData={poisData}
+          gridData={gridData}
           drawMode={drawMode}
           onDrawComplete={handleDrawComplete}
           clearDrawSignal={clearDrawSignal}
@@ -221,6 +250,7 @@ export default function App() {
           initialViewState={viewState}
           initialSelectedHexId={initialUrlState.selectedHexId}
           onViewStateChange={setViewState}
+          onViewportBoundsChange={setViewportBounds}
         />
 
         {/* Floating Top Badge Info */}

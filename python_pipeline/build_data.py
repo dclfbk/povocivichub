@@ -6,16 +6,22 @@ Povo Civic Hub - Geographic Data Analysis Pipeline (ICC Edition, outdoor-sport f
      amenity, shop, tourism, leisure, sport=* (any value, not just climbing --
      used to label sports pitches), highway=bus_stop, railway=station/halt,
      place=square, historic, office, public_transport=platform.
-   - Benches, viewpoints and recycling points (isole ecologiche) are
-     intentionally NOT extracted (2026-07-25 feedback: street-furniture
-     noise, not signal for this project's goal). `amenity=parking` IS fetched,
-     but only to compute a distance-to-parking
-     accessibility indicator (d_parking_m) -- it's never classified/displayed
-     as a PoI and never feeds W_cat/ICC/mix_index (see
-     classify_and_transform_pois and calculate_accessibility_distances).
-   - `tourism=information` trail signage is kept ONLY if it falls within 30m of
-     a named trail/track way (fetch_named_hiking_routes) -- otherwise it's
-     dropped as clutter.
+   - Benches and viewpoints are intentionally NOT extracted (2026-07-25
+     feedback: street-furniture noise, not signal for this project's goal).
+     `amenity=recycling` IS fetched, but only `recycling_type=centre` (a real
+     staffed/drop-off "isola ecologica") is kept -- individual street
+     recycling bins/containers are dropped as clutter (2026-07-26 feedback).
+   - `amenity=parking` and off-route `tourism=information` trail signage are
+     both fetched and shown on the map/table with a normal icon + popup, but
+     flagged `solo_riferimento=True` (2026-07-26 feedback: "punti di cui fai
+     uso e che non fanno parte del calcolo" should still be queryable) --
+     they're excluded from W_cat/ICC/mix_index scoring the same way
+     place_of_worship/private PoIs are (see calculate_scores_and_mixite).
+     Parking is additionally used to compute a distance-to-parking
+     accessibility indicator (d_parking_m, see calculate_accessibility_distances).
+     `tourism=information` is flagged `solo_riferimento=False` only when it
+     falls within 30m of a named trail/track way (fetch_named_hiking_routes) --
+     those genuinely mark a route and count normally toward occa_score.
 
 2. DATASET LOCALE (Circoscrizione di Povo):
    - Loads raw_data/dati_circoscrizione.geojson, drops the exact duplicate
@@ -160,24 +166,24 @@ def fetch_osm_graph_and_pois(gdf_wgs84):
     G_utm = ox.project_graph(G, to_crs=TARGET_CRS)
     print(f"    Pedestrian network retrieved: {len(G_utm.nodes)} nodes, {len(G_utm.edges)} edges.")
 
-    # 2. Comprehensive POI tags. NOTE: benches, viewpoints and recycling
-    # points (isole ecologiche, amenity=recycling) are intentionally excluded
-    # (2026-07-25 feedback): they're street-furniture noise for this project's
-    # goal, not signal. `sport` is kept as its own column even for
-    # `leisure=pitch` features (not just climbing) so pitches can be labelled
-    # "Campo da <sport>" instead of the raw OSM word "pitch". `parking` IS
-    # fetched (2026-07-25 feedback) but only to compute a distance-to-parking
-    # accessibility indicator (see calculate_accessibility_distances) --
-    # classify_and_transform_pois explicitly skips it so it never becomes a
-    # displayed/scored PoI (no category, no icon, doesn't feed any social
-    # indicator).
+    # 2. Comprehensive POI tags. NOTE: benches and viewpoints are
+    # intentionally excluded (2026-07-25 feedback): they're street-furniture
+    # noise for this project's goal, not signal. `sport` is kept as its own
+    # column even for `leisure=pitch` features (not just climbing) so
+    # pitches can be labelled "Campo da <sport>" instead of the raw OSM word
+    # "pitch". `parking` and `recycling` ARE fetched, but
+    # classify_and_transform_pois flags them `solo_riferimento=True` (or, for
+    # recycling, drops non-`recycling_type=centre` ones entirely) so they
+    # never feed W_cat/ICC/mix_index -- see the module docstring and
+    # calculate_accessibility_distances (d_parking_m).
     tags = {
         'amenity': [
             'university', 'research_institute', 'library', 'school', 'kindergarten',
             'pharmacy', 'post_office', 'townhall', 'community_centre', 'social_facility',
-            'cafe', 'restaurant', 'pub', 'bar', 'canteen', 'fast_food', 'bank',
+            'cafe', 'restaurant', 'pub', 'bar', 'canteen', 'fast_food', 'bank', 'atm',
             'public_bookcase', 'drinking_water', 'shelter', 'place_of_worship',
-            'theatre', 'arts_centre', 'parking'
+            'theatre', 'arts_centre', 'parking', 'recycling', 'marketplace',
+            'fire_station', 'clinic', 'doctors'
         ],
         'shop': [
             'supermarket', 'bakery', 'convenience', 'butcher', 'greengrocer', 'chemist', 'books',
@@ -187,7 +193,7 @@ def fetch_osm_graph_and_pois(gdf_wgs84):
             'information', 'picnic_site', 'alpine_hut', 'wilderness_hut',
             'guest_house', 'hotel', 'attraction', 'museum', 'artwork', 'chalet', 'camp_site'
         ],
-        'leisure': ['park', 'playground', 'sports_centre', 'pitch', 'garden', 'nature_reserve', 'amphitheatre'],
+        'leisure': ['park', 'playground', 'sports_centre', 'pitch', 'garden', 'nature_reserve', 'amphitheatre', 'sports_hall', 'fitness_station'],
         'sport': True,
         'highway': ['bus_stop'],
         'railway': ['station', 'halt'],
@@ -270,6 +276,7 @@ ICON_MAP = {
     ('historic', 'memorial'): 'monument',
     ('historic', 'archaeological_site'): 'ruins',
     ('historic', 'ruins'): 'ruins',
+    ('historic', 'trench'): 'ruins',
     ('amenity', 'theatre'): 'theater',
     ('amenity', 'arts_centre'): 'theater',
     ('amenity', 'restaurant'): 'restaurant',
@@ -277,6 +284,7 @@ ICON_MAP = {
     ('amenity', 'pub'): 'cafe',
     ('amenity', 'bar'): 'cafe',
     ('amenity', 'fast_food'): 'cafe',
+    ('amenity', 'canteen'): 'canteen',
     ('amenity', 'public_bookcase'): 'library',
     ('amenity', 'library'): 'library',
     ('amenity', 'university'): 'college',
@@ -298,6 +306,10 @@ ICON_MAP = {
     ('leisure', 'garden'): 'park',
     ('leisure', 'pitch'): 'sport',
     ('leisure', 'sports_centre'): 'sport',
+    ('leisure', 'sports_hall'): 'sports_hall',
+    ('leisure', 'playground'): 'playground',
+    ('leisure', 'nature_reserve'): 'nature_reserve',
+    ('leisure', 'fitness_station'): 'fitness_station',
     ('highway', 'bus_stop'): 'bus',
     ('railway', 'station'): 'bus',
     ('railway', 'halt'): 'bus',
@@ -311,6 +323,16 @@ ICON_MAP = {
     ('sport', 'volleyball'): 'volleyball_court',
     ('sport', 'tennis'): 'tennis_court',
     ('shop', 'copyshop'): 'copyshop',
+    ('shop', 'supermarket'): 'supermarket',
+    ('shop', 'bakery'): 'bakery',
+    ('shop', 'convenience'): 'convenience',
+    ('shop', 'butcher'): 'butcher',
+    ('shop', 'greengrocer'): 'greengrocer',
+    ('shop', 'chemist'): 'pharmacy',
+    ('shop', 'books'): 'books',
+    ('shop', 'beauty'): 'beauty',
+    ('shop', 'hairdresser'): 'hairdresser',
+    ('shop', 'deli'): 'deli',
     ('office', 'association'): 'association',
     ('office', 'ngo'): 'association',
     ('office', 'research'): 'college',
@@ -327,20 +349,46 @@ ICON_MAP = {
     ('amenity', 'social_facility'): 'social_facility',
     ('amenity', 'shelter'): 'shelter',
     ('place', 'square'): 'square',
+    # Reference-only PoIs (2026-07-26 feedback): shown with their own icon +
+    # popup even though they're excluded from indicator scoring (see
+    # `solo_riferimento` in classify_and_transform_pois).
+    ('amenity', 'parking'): 'parking',
+    ('amenity', 'recycling'): 'recycling',
+    # Neighbourhood-service icons that were fetched from OSM but still fell
+    # back to the generic 'marker' pin, indistinguishable from an unclassified
+    # feature (2026-07-26 feedback: "mancano ancora icone" -- audited every
+    # tag this pipeline fetches against ICON_MAP and filled every gap, not
+    # just the examples given).
+    ('amenity', 'school'): 'school',
+    ('amenity', 'kindergarten'): 'kindergarten',
+    ('amenity', 'pharmacy'): 'pharmacy',
+    ('amenity', 'post_office'): 'post_office',
+    ('amenity', 'bank'): 'bank',
+    ('amenity', 'atm'): 'atm',
+    ('amenity', 'marketplace'): 'market',
+    ('amenity', 'fire_station'): 'fire_station',
+    ('amenity', 'clinic'): 'clinic',
+    ('amenity', 'doctors'): 'clinic',
 }
 
 
 def assign_icon_name(historic, amenity, tourism, leisure, highway, railway,
-                      sport='nan', office='nan', shop='nan', public_transport='nan'):
+                      sport='nan', office='nan', shop='nan', public_transport='nan', place='nan'):
     """Pick a MapLibre icon name for a POI from its OSM tags, with a 'marker' fallback."""
     for key, value in [
         ('historic', historic), ('amenity', amenity), ('tourism', tourism),
         ('sport', sport), ('office', office), ('shop', shop),
         ('leisure', leisure), ('highway', highway), ('railway', railway),
-        ('public_transport', public_transport)
+        ('public_transport', public_transport), ('place', place)
     ]:
         if value != 'nan' and (key, value) in ICON_MAP:
             return ICON_MAP[(key, value)]
+    # Any other sport=* value (e.g. table_tennis, athletics, multi) not
+    # specifically mapped above still deserves the generic sport icon rather
+    # than the plain marker pin (2026-07-26 feedback: audited every PoI that
+    # still fell back to 'marker' on a real pipeline run).
+    if sport != 'nan':
+        return 'sport'
     return 'marker'
 
 
@@ -416,7 +464,7 @@ AMENITY_TYPE_LABELS_IT = {
     'copyshop': 'Copisteria',
     'beauty': 'Centro Estetico',
     'hairdresser': 'Parrucchiere',
-    'deli': 'Rosticceria',
+    'deli': 'Gastronomia',
     'association': 'Associazione / Circolo',
     'ngo': 'Associazione / ONG',
     'wilderness_hut': 'Bivacco',
@@ -439,6 +487,22 @@ AMENITY_TYPE_LABELS_IT = {
     'it': 'Azienda ICT',
     'research': 'Ufficio di Ricerca',
     'educational_institution': 'Istituto Formativo',
+    # Added 2026-07-26 -- these OSM tags were already fetched (or newly added
+    # to the fetch list, see fetch_osm_graph_and_pois) but had no Italian
+    # label, so they fell back to a raw/title-cased English word in the UI.
+    'pharmacy': 'Farmacia',
+    'supermarket': 'Supermercato',
+    'convenience': 'Minimarket',
+    'butcher': 'Macelleria',
+    'greengrocer': 'Fruttivendolo',
+    'chemist': 'Drogheria',
+    'books': 'Libreria',
+    'atm': 'Bancomat',
+    'marketplace': 'Mercato Rionale',
+    'fire_station': 'Vigili del Fuoco',
+    'clinic': 'Ambulatorio Medico',
+    'doctors': 'Studio Medico',
+    'nature_reserve': 'Riserva Naturale',
 }
 
 
@@ -517,16 +581,18 @@ def classify_and_transform_pois(raw_pois_utm, named_routes_buffer=None):
     """
     Transform polygon POIs to centroids in EPSG:25832, assign category, name, sub_type,
     osm_tag, icon_name, sociological/ICC metadata, and return GeoDataFrames in
-    EPSG:25832 and EPSG:4326. `tourism=information` signage is dropped unless it
-    falls within `named_routes_buffer` (2026-07-25: too many generic trail signs
-    otherwise -- only keep the ones that actually mark a named route).
+    EPSG:25832 and EPSG:4326. Individual recycling bins (recycling_type != 'centre')
+    are dropped entirely. Parking and off-route `tourism=information` signage (outside
+    `named_routes_buffer`) are kept but flagged `solo_riferimento=True` -- shown on the
+    map/table with their own icon and popup, excluded from indicator scoring
+    (see calculate_scores_and_mixite).
     """
     print("--> Classifying POIs and converting polygon geometries to centroids...")
     empty_cols = [
-        'id', 'name', 'category', 'sub_type', 'osm_tag', 'icon_name', 'amenity_type',
+        'id', 'osm_id', 'name', 'category', 'sub_type', 'osm_tag', 'icon_name', 'amenity_type',
         'social_function', 'image_url', 'indirizzo', 'orari_apertura', 'contatti',
         'sito_web', 'accessibilita_disabili', 'source', 'wikidata_id', 'wikipedia_title',
-        'accesso_pubblico', 'offre_asporto', 'geometry'
+        'accesso_pubblico', 'offre_asporto', 'solo_riferimento', 'geometry'
     ]
     if len(raw_pois_utm) == 0:
         empty_gdf_utm = gpd.GeoDataFrame(columns=empty_cols, crs=TARGET_CRS)
@@ -551,8 +617,9 @@ def classify_and_transform_pois(raw_pois_utm, named_routes_buffer=None):
     poi_records_utm = []
     poi_records_wgs84 = []
 
-    n_signage_dropped = 0
-    n_parking_skipped = 0
+    n_signage_reference_only = 0
+    n_parking_reference_only = 0
+    n_recycling_dropped = 0
     for idx, row in gdf_pts_utm.iterrows():
         pt_utm = row.geometry
         pt_wgs84 = gdf_pts_wgs84.loc[idx].geometry
@@ -574,44 +641,71 @@ def classify_and_transform_pois(raw_pois_utm, named_routes_buffer=None):
         wikipedia = str(row.get('wikipedia', ''))
         opening_hours = str(row.get('opening_hours', ''))
         takeaway_tag = str(row.get('takeaway', '')).lower()
+        recycling_type = str(row.get('recycling_type', '')).lower()
+        cuisine = str(row.get('cuisine', '')).lower()
         accesso_pubblico = compute_accesso_pubblico(row.get('access', ''))
 
         name = str(row.get('name', ''))
         if name == 'nan':
             name = ''
 
+        # An amenity=shelter can mean three very different things -- a bus
+        # stop's pensilina, an open-air civic third-place shelter, or a
+        # mountain/trail rifugio-style hut -- and OSM's own `shelter_type`
+        # sub-tag is what actually distinguishes the last case (2026-07-26
+        # feedback: "devi capire quando sei davanti ad una pensilina
+        # dell'autobus ... o davanti ad un rifugio"). Checked in this order:
+        # explicit shelter_type=public_transport, then proximity to a mapped
+        # bus stop (shelter_type is often left blank even on real bus
+        # shelters), then outdoor/hiking shelter_type values.
+        OUTDOOR_SHELTER_TYPES = {'basic_hut', 'lean_to', 'rock_shelter', 'weather_shelter', 'field_shelter'}
         is_bus_shelter = False
+        is_outdoor_shelter = False
         if amenity == 'shelter':
-            shelter_type = str(row.get('shelter_type', ''))
+            shelter_type = str(row.get('shelter_type', '')).lower()
             if shelter_type == 'public_transport':
                 is_bus_shelter = True
             elif len(bus_stop_geoms) > 0 and bus_stop_geoms.distance(pt_utm).min() <= BUS_SHELTER_RADIUS_M:
                 is_bus_shelter = True
+            elif shelter_type in OUTDOOR_SHELTER_TYPES:
+                is_outdoor_shelter = True
 
-        # Parking is fetched only to feed the distance-to-parking accessibility
-        # indicator (calculate_accessibility_distances reads it straight from
-        # raw_pois_utm) -- it must never become a displayed/scored PoI (2026-07-25
-        # feedback: no social-indicator category, no map icon, no table row).
-        if amenity == 'parking':
-            n_parking_skipped += 1
+        # Individual street recycling bins/containers are noise; only a real
+        # staffed/drop-off "isola ecologica" (recycling_type=centre) is kept
+        # (2026-07-26 feedback).
+        if amenity == 'recycling' and recycling_type != 'centre':
+            n_recycling_dropped += 1
             continue
 
-        # Generic trail signage is noise unless it marks a named hiking/running
-        # route (2026-07-25 feedback: too many points on mountain trails).
-        if tourism == 'information':
-            on_named_route = named_routes_buffer is not None and named_routes_buffer.contains(pt_utm)
-            if not on_named_route:
-                n_signage_dropped += 1
-                continue
+        # Parking feeds the distance-to-parking accessibility indicator
+        # (calculate_accessibility_distances reads it straight from
+        # raw_pois_utm) and generic off-route trail signage is otherwise just
+        # clutter (2026-07-25 feedback: too many points on mountain trails) --
+        # neither represents a neighbourhood service in its own right, so both
+        # are marked `solo_riferimento` below and excluded from indicator
+        # scoring (see calculate_scores_and_mixite), but they're still shown
+        # on the map/table with their own icon and a query popup (2026-07-26
+        # feedback: "punti di cui fai uso e che non fanno parte del calcolo"
+        # should still be identifiable).
+        is_reference_only_parking = amenity == 'parking'
+        on_named_route = tourism == 'information' and named_routes_buffer is not None and named_routes_buffer.contains(pt_utm)
+        is_reference_only_signage = tourism == 'information' and not on_named_route
+        solo_riferimento = is_reference_only_parking or is_reference_only_signage
+        if is_reference_only_parking:
+            n_parking_reference_only += 1
+        if is_reference_only_signage:
+            n_signage_reference_only += 1
 
         # Classification Logic
         # 1. Cross / Civic (Luoghi Pubblici) -- an unnamed amenity=shelter that's
         # actually a bus-stop shelter is NOT third-place civic infrastructure,
         # it's transit infra, so it's carved out here and picked up by the
-        # pendolari branch below instead (2026-07-25 feedback).
+        # pendolari branch below instead (2026-07-25 feedback); an outdoor/
+        # hiking-hut shelter is carved out too, picked up by the occasionali
+        # branch instead (2026-07-26 feedback).
         is_cross_civic_amenity = (
-            amenity in ['public_bookcase', 'community_centre', 'drinking_water', 'shelter', 'townhall', 'social_facility', 'place_of_worship']
-            and not (amenity == 'shelter' and is_bus_shelter)
+            amenity in ['public_bookcase', 'community_centre', 'drinking_water', 'shelter', 'townhall', 'social_facility', 'place_of_worship', 'marketplace']
+            and not (amenity == 'shelter' and (is_bus_shelter or is_outdoor_shelter))
         )
         if (is_cross_civic_amenity or
             leisure in ['park', 'garden'] or
@@ -658,9 +752,12 @@ def classify_and_transform_pois(raw_pois_utm, named_routes_buffer=None):
                           (f'railway={railway}' if railway != 'nan' else f'office={office}')))))
 
         # 3. Occasionali (forti/castelli, monumenti/trincee, teatri/anfiteatri, musei/
-        #    attrazioni, falesie, bivacchi, sentieri, punti panoramici, picnic, ristorazione)
+        #    attrazioni, falesie, bivacchi, sentieri, punti panoramici, picnic, ristorazione,
+        #    rifugi/ripari escursionistici -- amenity=shelter con shelter_type di tipo
+        #    outdoor, 2026-07-26 feedback)
         elif (historic != 'nan' or
               amenity in ['cafe', 'restaurant', 'pub', 'bar', 'fast_food', 'theatre', 'arts_centre'] or
+              (amenity == 'shelter' and is_outdoor_shelter) or
               tourism != 'nan' or
               leisure in ['nature_reserve', 'amphitheatre'] or
               sport == 'climbing'):
@@ -674,20 +771,49 @@ def classify_and_transform_pois(raw_pois_utm, named_routes_buffer=None):
                         (f'amenity={amenity}' if amenity != 'nan' else
                          (f'sport={sport}' if sport != 'nan' else f'leisure={leisure}'))))
 
-        # 4. Residenti (Servizi vicinato, scuole, farmacie, alimentari, estetica, parco giochi)
+        # 4. Residenti (Servizi vicinato, scuole, farmacie, alimentari, estetica, parco giochi).
+        # `sport` is the last resort in the chain -- catches a bare sport=*
+        # node/way with no amenity/shop/leisure tag of its own (2026-07-26
+        # feedback: found via a real pipeline run producing a nonsensical
+        # "leisure=nan" name/osm_tag for exactly this case).
         else:
             category = 'residenti'
-            sub_type = amenity if amenity != 'nan' else (shop if shop != 'nan' else leisure)
-            osm_tag = f'amenity={amenity}' if amenity != 'nan' else (f'shop={shop}' if shop != 'nan' else f'leisure={leisure}')
+            sub_type = (amenity if amenity != 'nan' else
+                        (shop if shop != 'nan' else
+                         (leisure if leisure != 'nan' else sport)))
+            osm_tag = (f'amenity={amenity}' if amenity != 'nan' else
+                       (f'shop={shop}' if shop != 'nan' else
+                        (f'leisure={leisure}' if leisure != 'nan' else f'sport={sport}')))
+
+        # Always surface a name -- an anonymous OSM node/way shouldn't reach
+        # the UI as a nameless "Punto di interesse": fall back to its own
+        # OSM tag (e.g. "amenity=shelter") so it's at least identifiable
+        # (2026-07-26 feedback: "dai dati OSM recupera sempre il nome, se non
+        # lo hai metti il tag osm").
+        if not name:
+            name = osm_tag
 
         icon_name = assign_icon_name(historic, amenity, tourism, leisure, highway, railway,
-                                      sport, office, shop, public_transport)
+                                      sport, office, shop, public_transport, place)
         # A bus-stop shelter is transit infra (already routed to category=
         # 'pendolari' above), not the generic civic "shelter" glyph added for
         # amenity=shelter -- keep it visually grouped with the other transit
-        # icons instead.
+        # icons instead. An outdoor/hiking-hut shelter (already routed to
+        # category='occasionali' above) gets its own distinct glyph too, so
+        # it doesn't read as the same "civic shelter" as an urban one
+        # (2026-07-26 feedback).
         if amenity == 'shelter' and is_bus_shelter:
             icon_name = 'bus'
+        elif amenity == 'shelter' and is_outdoor_shelter:
+            icon_name = 'mountain_shelter'
+
+        # A pizzeria/pizza-al-taglio place is usually just tagged
+        # amenity=restaurant or amenity=fast_food with cuisine=pizza -- give
+        # it its own icon instead of the generic restaurant/fast_food one
+        # (2026-07-26 feedback: "pizza al taglio" / "pizzeria" in the list of
+        # PoI types that need a distinguishable icon).
+        if amenity in ('restaurant', 'fast_food') and 'pizza' in cuisine:
+            icon_name = 'pizza'
 
         # "Campo da <sport>" instead of the raw OSM word "pitch" (2026-07-25 feedback).
         amenity_type = (format_pitch_label(sport) if sub_type == 'pitch' else
@@ -703,8 +829,18 @@ def classify_and_transform_pois(raw_pois_utm, named_routes_buffer=None):
             takeaway_tag == 'yes'
         )
 
+        # OSM's own "element/id" reference (idx is an (element_type, osmid)
+        # MultiIndex tuple from osmnx's features_from_polygon, e.g.
+        # ('node', 13990384642) -> 'node/13990384642'). This is the same
+        # format the circoscrizione dataset's own new `osm_id` column now
+        # uses (2026-07-26 feedback), so deduplicate_and_merge below can
+        # match local <-> OSM records by exact element identity instead of
+        # (or ahead of) fuzzy name/distance matching.
+        osm_id = f'{idx[0]}/{idx[1]}' if isinstance(idx, tuple) else ''
+
         rec_meta = {
             'id': str(idx[1]) if isinstance(idx, tuple) else str(idx),
+            'osm_id': osm_id,
             'name': name,
             'category': category,
             'sub_type': sub_type,
@@ -722,7 +858,8 @@ def classify_and_transform_pois(raw_pois_utm, named_routes_buffer=None):
             'wikidata_id': wikidata if wikidata != 'nan' else '',
             'wikipedia_title': wikipedia if wikipedia != 'nan' else '',
             'accesso_pubblico': accesso_pubblico,
-            'offre_asporto': offre_asporto
+            'offre_asporto': offre_asporto,
+            'solo_riferimento': solo_riferimento
         }
 
         rec_utm = rec_meta.copy()
@@ -737,8 +874,9 @@ def classify_and_transform_pois(raw_pois_utm, named_routes_buffer=None):
     gdf_pois_wgs84 = gpd.GeoDataFrame(poi_records_wgs84, crs=WGS84_CRS)
 
     counts = gdf_pois_utm['category'].value_counts().to_dict()
-    print(f"    Trail signage (tourism=information) dropped, not on a named route: {n_signage_dropped}")
-    print(f"    Parking features skipped (fetched only for distance-to-parking indicator, not a scored PoI): {n_parking_skipped}")
+    print(f"    Individual recycling bins/containers dropped (kept only recycling_type=centre): {n_recycling_dropped}")
+    print(f"    Trail signage (tourism=information) kept as reference-only, not on a named route: {n_signage_reference_only}")
+    print(f"    Parking features kept as reference-only (also feed the distance-to-parking indicator): {n_parking_reference_only}")
     print("    OSM POIs categorized:", counts)
     return gdf_pois_utm, gdf_pois_wgs84
 
@@ -751,59 +889,68 @@ DAY_LABELS = {
     'venerdi': 'Ven', 'sabato': 'Sab', 'domenica': 'Dom'
 }
 
-# (substring found in the POI name, lowercased) -> sociological category.
-# Checked before the per-`servizio`-bucket default below.
+# (substring found in the POI name, lowercased) -> (sociological category,
+# icon_name). Checked before the per-`servizio`-bucket default below. The
+# icon is needed because a local-only entry (no matching OSM feature to
+# adopt icon_name from -- see deduplicate_and_merge) would otherwise stay on
+# the generic 'marker' pin forever (2026-07-26 feedback: "mancano ancora
+# icone sui PoI" -- bookcrossing/casa sociale/cabina fototessere/mercato
+# settimanale etc. are exactly the local-only entries this fixes).
 LOCAL_CATEGORY_KEYWORDS = [
-    ('fontana', 'cross_civic'),
-    ('bookcrossing', 'cross_civic'),
-    ('mercat', 'cross_civic'),  # mercato, mercatino
-    ('associazion', 'cross_civic'),
-    ('centro civico', 'cross_civic'),
-    ('casa sociale', 'cross_civic'),
-    ('sala multiuso', 'cross_civic'),
-    ('copisteria', 'pendolari'),
-    ('cartocopisteria', 'pendolari'),
-    ('biblioteca', 'pendolari'),
-    ('scuola', 'residenti'),
-    ('farmacia', 'residenti'),
-    ('ufficio postale', 'residenti'),
-    ('banca', 'residenti'),
-    ('cooperativa', 'residenti'),
-    ('officina', 'residenti'),
-    ('estetic', 'residenti'),
-    ('prelievi', 'residenti'),
-    ('fototessere', 'residenti'),
-    ('vigili del fuoco', 'residenti'),
-    ('pane', 'residenti'),
-    ('agritur', 'occasionali'),
-    ('bar ', 'occasionali'),
-    ('pizzeria', 'occasionali'),
-    ('pizza ', 'occasionali'),
-    ('gelateria', 'occasionali'),
-    ('anfiteatro', 'occasionali'),
-    ('sala video', 'occasionali'),
-    ('monumento', 'occasionali'),
-    ('lapide', 'occasionali'),
-    ('forte ', 'occasionali'),
+    ('fontana', 'cross_civic', 'drinking_water'),
+    ('bookcrossing', 'cross_civic', 'library'),
+    ('mercat', 'cross_civic', 'market'),  # mercato, mercatino
+    ('associazion', 'cross_civic', 'association'),
+    ('centro civico', 'cross_civic', 'community_centre'),
+    ('casa sociale', 'cross_civic', 'community_centre'),
+    ('sala multiuso', 'cross_civic', 'community_centre'),
+    ('copisteria', 'pendolari', 'copyshop'),
+    ('cartocopisteria', 'pendolari', 'copyshop'),
+    ('biblioteca', 'pendolari', 'library'),
+    ('scuola', 'residenti', 'school'),
+    ('farmacia', 'residenti', 'pharmacy'),
+    ('ufficio postale', 'residenti', 'post_office'),
+    ('banca', 'residenti', 'bank'),
+    ('cooperativa', 'residenti', 'supermarket'),
+    ('officina', 'residenti', 'workshop'),
+    ('estetic', 'residenti', 'beauty'),
+    ('prelievi', 'residenti', 'clinic'),
+    ('fototessere', 'residenti', 'photo_booth'),
+    ('vigili del fuoco', 'residenti', 'fire_station'),
+    ('pane', 'residenti', 'bakery'),
+    ('agritur', 'occasionali', 'hotel'),
+    ('bar ', 'occasionali', 'cafe'),
+    ('pizzeria', 'occasionali', 'pizza'),
+    ('pizza ', 'occasionali', 'pizza'),
+    ('gelateria', 'occasionali', 'gelateria'),
+    ('anfiteatro', 'occasionali', 'theater'),
+    ('sala video', 'occasionali', 'theater'),
+    ('monumento', 'occasionali', 'monument'),
+    ('lapide', 'occasionali', 'monument'),
+    ('forte ', 'occasionali', 'castle'),
 ]
 
 # Fallback when no keyword above matches the POI name, keyed by the source's
-# own `servizio` bucket.
+# own `servizio` bucket -- (category, icon_name). 'Servizi e attività
+# economiche' is left on 'marker': it's a catch-all bucket (banks, workshops,
+# hairdressers, ...) too heterogeneous for one representative icon, and most
+# of its real entries already match a more specific keyword above.
 SERVIZIO_DEFAULT_CATEGORY = {
-    'Servizi e attività economiche': 'residenti',
-    'Ristorazione e agriturismi': 'occasionali',
-    'Cultura e tempo libero': 'cross_civic',
-    'Luoghi/monumenti di interesse storico/artistico e fontane': 'occasionali',
-    'Associazioni e gruppi': 'cross_civic',
+    'Servizi e attività economiche': ('residenti', 'marker'),
+    'Ristorazione e agriturismi': ('occasionali', 'restaurant'),
+    'Cultura e tempo libero': ('cross_civic', 'community_centre'),
+    'Luoghi/monumenti di interesse storico/artistico e fontane': ('occasionali', 'monument'),
+    'Associazioni e gruppi': ('cross_civic', 'association'),
 }
 
 
 def classify_local_poi(servizio, nome):
+    """Returns (category, icon_name) for a local circoscrizione POI, by keyword first, then servizio bucket."""
     nome_low = (nome or '').lower()
-    for keyword, category in LOCAL_CATEGORY_KEYWORDS:
+    for keyword, category, icon in LOCAL_CATEGORY_KEYWORDS:
         if keyword in nome_low:
-            return category
-    return SERVIZIO_DEFAULT_CATEGORY.get(servizio, 'residenti')
+            return category, icon
+    return SERVIZIO_DEFAULT_CATEGORY.get(servizio, ('residenti', 'marker'))
 
 
 # Manual corrections applied to specific local-dataset entries before
@@ -823,6 +970,16 @@ LOCAL_NOME_OVERRIDES = {
 # instead (2026-07-25 feedback).
 LOCAL_ATTORE_AMENITY_OVERRIDES = {
     'APSP Margherita Grazioli': 'Servizi alla Persona',
+}
+
+# Icon fallback for the same APSP-run entries, applied only when name-keyword
+# matching (LOCAL_CATEGORY_KEYWORDS) didn't already find something more
+# specific -- "Punto Prelievi" already matches the 'prelievi' keyword (its own
+# dedicated 'clinic' icon), but "Centro Servizi"/"Casa Melograno" are generic
+# names an APSP (a nursing-home institution -- "casa per anziani", 2026-07-26
+# feedback) uses that no keyword can catch on their own.
+LOCAL_ATTORE_ICON_OVERRIDES = {
+    'APSP Margherita Grazioli': 'nursing_home',
 }
 
 
@@ -897,7 +1054,7 @@ def load_local_dataset(path):
         nome = _clean(row.get('nome', ''))
         nome = LOCAL_NOME_OVERRIDES.get(nome, nome)
         servizio = _clean(row.get('servizio', ''))
-        category = classify_local_poi(servizio, nome)
+        category, local_icon_name = classify_local_poi(servizio, nome)
 
         referente = _clean(row.get('referente', ''))
         contatti_raw = _clean(row.get('contatti', ''))
@@ -907,16 +1064,26 @@ def load_local_dataset(path):
         if attore in LOCAL_ATTORE_AMENITY_OVERRIDES:
             nome = f'{nome} - {attore}'
             amenity_type = LOCAL_ATTORE_AMENITY_OVERRIDES[attore]
+            if local_icon_name == 'marker':
+                local_icon_name = LOCAL_ATTORE_ICON_OVERRIDES.get(attore, local_icon_name)
         else:
             amenity_type = normalize_attore(attore)
 
+        # Authoritative link to the matching OSM feature, e.g. 'node/13990384642'
+        # or 'way/79387122' (2026-07-26 feedback: the circoscrizione dataset now
+        # carries this itself) -- lets deduplicate_and_merge fuse local <-> OSM
+        # records by exact element identity instead of relying only on
+        # fuzzy name/distance matching, which can miss or misfire.
+        osm_id = _clean(row.get('osm_id', ''))
+
         records_wgs84.append({
             'id': f'locale_{idx}',
+            'osm_id': osm_id,
             'name': nome,
             'category': category,
             'sub_type': servizio,
             'osm_tag': f'locale={servizio}',
-            'icon_name': 'marker',  # refined if fused with a matching OSM feature
+            'icon_name': local_icon_name,  # overridden by the OSM feature's own icon if fused (deduplicate_and_merge)
             'amenity_type': amenity_type,
             'social_function': SOCIAL_FUNCTION_BY_CATEGORY[category],
             'image_url': _clean(row.get('foto', '')),
@@ -935,6 +1102,9 @@ def load_local_dataset(path):
             # its "Ristorazione e agriturismi" entries are exactly the kind of
             # place that hands out ready-to-eat food (2026-07-25 feedback).
             'offre_asporto': servizio == 'Ristorazione e agriturismi',
+            # The circoscrizione dataset never carries a reference-only PoI
+            # (parking / off-route trail signage) -- those are OSM-only.
+            'solo_riferimento': False,
             'geometry': geom
         })
 
@@ -957,26 +1127,43 @@ def load_local_dataset(path):
 
 def deduplicate_and_merge(gdf_local_utm, gdf_local_wgs84, gdf_osm_utm, gdf_osm_wgs84):
     """
-    Match local circoscrizione POIs against OSM-derived POIs within 25m using
-    RapidFuzz name similarity (>80%). Matched pairs are fused (local hyper-local
-    fields win, OSM geometry/tags/icon are adopted); unmatched records on either
-    side are kept standalone.
+    Match local circoscrizione POIs against OSM-derived POIs, preferring an
+    exact `osm_id` match ('<element>/<id>', e.g. 'node/13990384642' or
+    'way/79387122' -- present on both sides, see load_local_dataset and
+    classify_and_transform_pois) whenever the local dataset supplies one
+    (2026-07-26 feedback: this is the authoritative identity link, avoids
+    fuzzy-match misses/false-positives). Falls back to RapidFuzz name
+    similarity (>80%) within 25m otherwise. Matched pairs are fused (local
+    hyper-local fields win, OSM geometry/tags/icon are adopted); unmatched
+    records on either side are kept standalone.
     """
     print("--> Deduplicating and merging local dataset with OSM POIs...")
 
     osm_used = set()
     merged_utm, merged_wgs84 = [], []
     n_matched = 0
+    n_matched_by_osm_id = 0
 
     osm_sindex = gdf_osm_utm.sindex if len(gdf_osm_utm) > 0 else None
+
+    # osm_id -> positional index in gdf_osm_utm, for the exact-match path.
+    osm_id_to_pos = {}
+    if 'osm_id' in gdf_osm_utm.columns:
+        for pos, val in enumerate(gdf_osm_utm['osm_id']):
+            if val:
+                osm_id_to_pos[val] = pos
 
     for i in range(len(gdf_local_utm)):
         local_row_utm = gdf_local_utm.iloc[i]
         local_row_wgs84 = gdf_local_wgs84.iloc[i]
         local_geom = local_row_utm.geometry
+        local_osm_id = local_row_utm.get('osm_id', '')
 
-        best_idx, best_score = None, 0
-        if osm_sindex is not None and local_geom is not None and not local_geom.is_empty:
+        best_idx, best_score, matched_by_osm_id = None, 0, False
+        if local_osm_id and osm_id_to_pos.get(local_osm_id) is not None and osm_id_to_pos[local_osm_id] not in osm_used:
+            best_idx = osm_id_to_pos[local_osm_id]
+            matched_by_osm_id = True
+        elif osm_sindex is not None and local_geom is not None and not local_geom.is_empty:
             candidate_idx = list(osm_sindex.intersection(local_geom.buffer(DEDUP_RADIUS_M).bounds))
             for j in candidate_idx:
                 if j in osm_used:
@@ -991,6 +1178,8 @@ def deduplicate_and_merge(gdf_local_utm, gdf_local_wgs84, gdf_osm_utm, gdf_osm_w
         if best_idx is not None:
             osm_used.add(best_idx)
             n_matched += 1
+            if matched_by_osm_id:
+                n_matched_by_osm_id += 1
             osm_utm_row = gdf_osm_utm.iloc[best_idx]
             osm_wgs84_row = gdf_osm_wgs84.iloc[best_idx]
 
@@ -1006,6 +1195,7 @@ def deduplicate_and_merge(gdf_local_utm, gdf_local_wgs84, gdf_osm_utm, gdf_osm_w
                 fused['accesso_pubblico'] = osm_row.get('accesso_pubblico', True)
                 # OR-combine: either side inferring "yes" is enough to count.
                 fused['offre_asporto'] = bool(osm_row.get('offre_asporto', False)) or bool(fused.get('offre_asporto', False))
+                fused['solo_riferimento'] = bool(osm_row.get('solo_riferimento', False)) or bool(fused.get('solo_riferimento', False))
                 for field in ('image_url', 'orari_apertura', 'wikidata_id', 'wikipedia_title'):
                     if not fused.get(field):
                         fused[field] = osm_row.get(field, '')
@@ -1030,12 +1220,14 @@ def deduplicate_and_merge(gdf_local_utm, gdf_local_wgs84, gdf_osm_utm, gdf_osm_w
         'n_local': len(gdf_local_utm),
         'n_osm': len(gdf_osm_utm),
         'n_matched': n_matched,
+        'n_matched_by_osm_id': n_matched_by_osm_id,
         'n_local_standalone': len(gdf_local_utm) - n_matched,
         'n_osm_standalone': n_osm_standalone,
         'n_final': len(gdf_merged_utm)
     }
     print(f"    Matched {n_matched} local POIs to OSM features "
-          f"(<= {DEDUP_RADIUS_M}m, name similarity > {DEDUP_NAME_THRESHOLD}%).")
+          f"({n_matched_by_osm_id} by exact osm_id, "
+          f"{n_matched - n_matched_by_osm_id} by <= {DEDUP_RADIUS_M}m + name similarity > {DEDUP_NAME_THRESHOLD}%).")
     print(f"    Merged dataset (pre-manual): {stats['n_final']} POIs "
           f"({stats['n_local_standalone']} local-only, {n_osm_standalone} OSM-only, {n_matched} fused).")
     return gdf_merged_utm, gdf_merged_wgs84, stats
@@ -1051,6 +1243,7 @@ def deduplicate_and_merge(gdf_local_utm, gdf_local_wgs84, gdf_osm_utm, gdf_osm_w
 MANUAL_POIS = [
     {
         'id': 'manual_stoi_chegul',
+        'osm_id': '',
         'name': 'Stoi del Chegul (Ricoveri Militari)',
         'category': 'occasionali',
         'sub_type': 'historic',
@@ -1072,6 +1265,7 @@ MANUAL_POIS = [
         'wikipedia_title': '',
         'accesso_pubblico': True,
         'offre_asporto': False,
+        'solo_riferimento': False,
         'lon': 11.1782,
         'lat': 46.0625
     }
@@ -1579,14 +1773,19 @@ def calculate_scores_and_mixite(gdf_hex_utm, G_utm, gdf_pois_utm, gtfs_stops):
     # bus-stop shelter -- but those were already reclassified to
     # category='pendolari' in classify_and_transform_pois, so checking
     # category=='cross_civic' here only catches the non-bus-shelter ones.
+    # `solo_riferimento` (parking, off-route trail signage -- see
+    # classify_and_transform_pois) is the same kind of "shown but not
+    # counted" PoI as the other three conditions here: real, queryable map
+    # markers that don't represent a neighbourhood service in their own right.
     excluded_mask = (
         (gdf_pois_utm['sub_type'] == 'place_of_worship') |
         (gdf_pois_utm['accesso_pubblico'] == False) |  # noqa: E712
-        ((gdf_pois_utm['sub_type'] == 'shelter') & (gdf_pois_utm['category'] == 'cross_civic') & (gdf_pois_utm['name'] == ''))
+        ((gdf_pois_utm['sub_type'] == 'shelter') & (gdf_pois_utm['category'] == 'cross_civic') & (gdf_pois_utm['name'] == '')) |
+        (gdf_pois_utm['solo_riferimento'] == True)  # noqa: E712
     )
     gdf_indic = gdf_pois_utm[~excluded_mask]
     print(f"    PoI esclusi dal calcolo indicatori (luoghi di culto, accesso non pubblico, "
-          f"o rifugi/pensiline senza nome): {excluded_mask.sum()}")
+          f"rifugi/pensiline senza nome, o PoI di solo riferimento): {excluded_mask.sum()}")
 
     # Filter POIs by category
     gdf_res = gdf_indic[gdf_indic['category'] == 'residenti']
@@ -1784,8 +1983,10 @@ def write_report(path, stats, gdf_pois_wgs84):
     lines.append(f"- PoI locali dopo la deduplica interna: **{local_stats['n_final']}**")
     lines.append(f"- PoI estratti da OpenStreetMap: **{dedup_stats['n_osm']}**")
     lines.append(
-        f"- Corrispondenze locale ↔ OSM fuse (raggio {DEDUP_RADIUS_M}m, "
-        f"similarità nome > {DEDUP_NAME_THRESHOLD}%): **{dedup_stats['n_matched']}**"
+        f"- Corrispondenze locale ↔ OSM fuse: **{dedup_stats['n_matched']}** "
+        f"(di cui **{dedup_stats['n_matched_by_osm_id']}** per `osm_id` esatto, "
+        f"**{dedup_stats['n_matched'] - dedup_stats['n_matched_by_osm_id']}** per prossimità "
+        f"<= {DEDUP_RADIUS_M}m + similarità nome > {DEDUP_NAME_THRESHOLD}%)"
     )
     lines.append(f"- PoI solo locali (nessun corrispondente OSM): **{dedup_stats['n_local_standalone']}**")
     lines.append(f"- PoI solo OSM (nessun corrispondente locale): **{dedup_stats['n_osm_standalone']}**")

@@ -25,12 +25,16 @@ import {
   gridMetricGradientCss,
   MIXED_AREA_COLOR,
   buildHexSegments,
-  buildCategorySegments,
   MAP_STYLES,
   HEATMAP_RADIUS_RANGE,
   SEMANTIC_LEVELS_5,
   getSemanticLevel5
 } from '../config/mapConfig';
+
+// Default (empty) hex-score aggregate, used whenever no hexagon centroid
+// falls inside the drawn area / current map extent -- renders as "no data"
+// in the stacked bar rather than crashing on undefined fields.
+const EMPTY_HEX_AGG = { res_score: 0, comm_score: 0, occa_score: 0, mix_index: 0 };
 
 const POI_VIEW_MODES = [
   { key: 'none', label: 'Nessun PoI', icon: EyeOff },
@@ -64,14 +68,41 @@ export default function Sidebar({
   drawnAreaStats,
   onClearDrawnArea,
   mapStyle,
-  onChangeMapStyle
+  onChangeMapStyle,
+  mapExtentHexStats
 }) {
-  const mixIndex = selectedHex ? parseFloat(selectedHex.mix_index || 0) : null;
+  // The Polifunzionalità card reflects whichever context is active, in this
+  // priority order (2026-07-26 feedback: "calcolato o sulla base dell'extent
+  // della mappa (se non faccio nulla), o selezionando un esagono ... oppure
+  // disegnando l'area"). All three read the SAME kind of value -- the
+  // pipeline's own precomputed per-hexagon mix_index/res_score/comm_score/
+  // occa_score -- either directly (one selected hexagon) or averaged across
+  // every hexagon whose centroid falls in the drawn area / current viewport
+  // (Map.jsx / App.jsx). An earlier version derived the drawn-area/map-extent
+  // reading independently from raw PoI counts (Shannon entropy), which
+  // nearly always saturated near 100% for any real area -- see
+  // GRID_METRICS.mix_index.info and project memory
+  // [[feature_solo_riferimento_osmid_percent_mixindex]] for why that was wrong.
+  let contextLabel, mixIndex, segments;
+  if (selectedHex) {
+    contextLabel = 'Esagono Selezionato';
+    mixIndex = parseFloat(selectedHex.mix_index || 0);
+    segments = buildHexSegments(selectedHex);
+  } else if (drawnAreaStats) {
+    contextLabel = 'Area Disegnata';
+    const agg = drawnAreaStats.hexAgg || EMPTY_HEX_AGG;
+    mixIndex = agg.mix_index;
+    segments = buildHexSegments(agg);
+  } else {
+    contextLabel = 'Vista Mappa Corrente';
+    const agg = mapExtentHexStats || EMPTY_HEX_AGG;
+    mixIndex = agg.mix_index;
+    segments = buildHexSegments(agg);
+  }
 
   // Determine Polifunzionalità Index badge color & label (plain Italian,
   // no "Mixité"/"Mixing" jargon -- 2026-07-25 feedback).
   const getMixLevel = (score) => {
-    if (score === null) return { label: 'Media Generale', color: 'bg-indigo-500/20 text-indigo-300 border-indigo-500/30' };
     if (score > 0.75) return { label: 'Alta Polifunzionalità', color: 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30' };
     if (score > 0.45) return { label: 'Media Polifunzionalità', color: 'bg-amber-500/20 text-amber-300 border-amber-500/30' };
     return { label: 'Bassa Polifunzionalità (Monofunzionale)', color: 'bg-blue-500/20 text-blue-300 border-blue-500/30' };
@@ -357,18 +388,17 @@ export default function Sidebar({
           </div>
         </section>
 
-        {/* Selected Hexagon Info Card */}
+        {/* Polifunzionalità Info Card -- context-aware: selected hexagon,
+            drawn area, or (default) current map extent. */}
         <section className="glass-card rounded-2xl p-5 border border-slate-700/60 space-y-4">
           <div className="flex items-center justify-between">
             <span className="text-xs font-bold text-indigo-400 uppercase tracking-widest flex items-center gap-1.5">
-              <MapPin className="w-3.5 h-3.5" /> Esagone H3 (Res 9)
+              <MapPin className="w-3.5 h-3.5" /> {contextLabel}
             </span>
-            {selectedHex ? (
+            {selectedHex && (
               <span className="text-xs font-mono bg-slate-800 px-2 py-0.5 rounded border border-slate-700 text-slate-300">
                 {selectedHex.h3_id}
               </span>
-            ) : (
-              <span className="text-xs text-slate-400">Povo Centro</span>
             )}
           </div>
 
@@ -380,7 +410,7 @@ export default function Sidebar({
                 <InfoButton title={GRID_METRICS.mix_index.label}>{GRID_METRICS.mix_index.info}</InfoButton>
               </div>
               <div className="text-3xl font-extrabold tracking-tight text-white mt-0.5">
-                {mixIndex !== null ? mixIndex.toFixed(4) : '0.6524'}
+                {mixIndex.toFixed(4)}
               </div>
             </div>
             <span className={`text-xs px-3 py-1 rounded-full font-semibold border ${mixLevel.color}`}>
@@ -394,7 +424,7 @@ export default function Sidebar({
               itself, distinct from the badge above (which reads the raw
               mix_index against the "mixed-use" threshold specifically). */}
           {(() => {
-            const semLevel = getSemanticLevel5(mixIndex ?? 0.6524);
+            const semLevel = getSemanticLevel5(mixIndex);
             return (
               <div className="pt-1">
                 <div className="flex items-center gap-1">
@@ -420,10 +450,10 @@ export default function Sidebar({
               <Sparkles className="w-4 h-4 text-indigo-400" /> Profilo Funzionale
             </div>
             <CategoryStackedBar
-              title={selectedHex ? 'Profilo Esagone' : 'Profilo Medio Circoscrizione'}
-              segments={buildHexSegments(selectedHex || { res_score: 0.42, comm_score: 0.38, occa_score: 0.56 })}
+              title={contextLabel}
+              segments={segments}
               valueLabel="Valore assoluto: punteggio normalizzato (0-1) di prossimità/densità PoI"
-              note="Gli esagoni non hanno un punteggio civico separato: i Luoghi Pubblici alimentano tutti e tre gli assi nel calcolo (sono gli oggetti che uniscono le categorie)."
+              note="I Luoghi Pubblici non hanno un asse proprio: alimentano Residenti/Pendolari/Occasionali nel calcolo della Polifunzionalità (sono gli oggetti che uniscono le categorie)."
             />
           </div>
         </section>
@@ -457,6 +487,9 @@ export default function Sidebar({
 
           {drawnAreaStats && (
             <div className="space-y-2 pt-1">
+              {/* The Polifunzionalità % and category profile for this area are
+                  shown in the card above (context-aware) -- this section keeps
+                  just the raw count/ICC detail specific to the drawn shape. */}
               <div className="grid grid-cols-2 gap-2 text-center text-xs">
                 <div className="bg-slate-900/60 p-2 rounded-lg border border-slate-800">
                   <div className="text-slate-400">PoI nell&apos;area</div>
@@ -469,13 +502,6 @@ export default function Sidebar({
                   </div>
                 </div>
               </div>
-
-              <CategoryStackedBar
-                title="Profilo Area Disegnata"
-                segments={buildCategorySegments(drawnAreaStats.counts)}
-                valueLabel="Valore assoluto: numero di PoI nell'area disegnata"
-                valueFormatter={(v) => Math.round(v)}
-              />
 
               <button
                 onClick={onClearDrawnArea}
