@@ -4,12 +4,14 @@ import 'maplibre-gl/dist/maplibre-gl.css';
 import {
   buildFillColorExpression,
   buildClusterCategoryColorExpression,
+  buildHexRangeFilter,
   CLUSTER_CATEGORY_PROPERTIES,
   createPoiIconImage,
   computePoiStatsInPolygon,
   buildMapStyleDefinition,
   computeBboxFromGeoJSON,
-  buildPoiPopupHtml
+  buildPoiPopupHtml,
+  buildHeatmapRadiusExpression
 } from '../config/mapConfig';
 
 const EMPTY_FC = { type: 'FeatureCollection', features: [] };
@@ -30,6 +32,8 @@ export default function Map({
   showTerrain,
   gridMetric,
   activePoiCategories,
+  heatmapRadius,
+  hexValueRange,
   poisData,
   drawMode,
   onDrawComplete,
@@ -56,10 +60,10 @@ export default function Map({
   // Latest prop values, kept in refs so the layer-(re)creation logic below
   // (shared between the initial mount and every basemap-style switch) always
   // reads current state instead of whatever was captured at mount time.
-  const stateRef = useRef({ showGrid, poiViewMode, gridMetric, activePoiCategories, showTerrain });
+  const stateRef = useRef({ showGrid, poiViewMode, gridMetric, activePoiCategories, showTerrain, heatmapRadius, hexValueRange });
   useEffect(() => {
-    stateRef.current = { showGrid, poiViewMode, gridMetric, activePoiCategories, showTerrain };
-  }, [showGrid, poiViewMode, gridMetric, activePoiCategories, showTerrain]);
+    stateRef.current = { showGrid, poiViewMode, gridMetric, activePoiCategories, showTerrain, heatmapRadius, hexValueRange };
+  }, [showGrid, poiViewMode, gridMetric, activePoiCategories, showTerrain, heatmapRadius, hexValueRange]);
 
   useEffect(() => {
     poisDataRef.current = poisData;
@@ -91,11 +95,14 @@ export default function Map({
     // 2. H3 hexagon grid — hidden by default.
     map.addSource('povo-grid-src', { type: 'geojson', data: './data/povo_grid.json', generateId: true });
 
+    const initialHexFilter = buildHexRangeFilter(stateRef.current.gridMetric, stateRef.current.hexValueRange);
+
     map.addLayer({
       id: 'povo-grid-fill',
       type: 'fill',
       source: 'povo-grid-src',
       layout: { visibility: 'none' },
+      ...(initialHexFilter ? { filter: initialHexFilter } : {}),
       paint: {
         'fill-color': buildFillColorExpression(stateRef.current.gridMetric),
         'fill-opacity': [
@@ -112,6 +119,7 @@ export default function Map({
       type: 'line',
       source: 'povo-grid-src',
       layout: { visibility: 'none' },
+      ...(initialHexFilter ? { filter: initialHexFilter } : {}),
       paint: {
         'line-color': [
           'case',
@@ -151,7 +159,7 @@ export default function Map({
           'interpolate', ['linear'], ['heatmap-density'],
           0, 'rgba(0,0,0,0)', 0.2, '#312e81', 0.4, '#3b82f6', 0.6, '#10b981', 0.8, '#f59e0b', 1, '#ec4899'
         ],
-        'heatmap-radius': ['interpolate', ['linear'], ['zoom'], 11, 15, 15, 30],
+        'heatmap-radius': buildHeatmapRadiusExpression(stateRef.current.heatmapRadius),
         'heatmap-opacity': 0.75
       }
     });
@@ -237,12 +245,15 @@ export default function Map({
   // layers -- needed after a basemap switch, since setStyle() resets every
   // layer back to its just-created defaults regardless of current React state.
   const applyCurrentState = (map) => {
-    const { showGrid: sg, poiViewMode: pvm, gridMetric: gm, activePoiCategories: apc, showTerrain: st } = stateRef.current;
+    const { showGrid: sg, poiViewMode: pvm, gridMetric: gm, activePoiCategories: apc, showTerrain: st, heatmapRadius: hr, hexValueRange: hvr } = stateRef.current;
 
     const gridVisibility = sg ? 'visible' : 'none';
     map.setLayoutProperty('povo-grid-fill', 'visibility', gridVisibility);
     map.setLayoutProperty('povo-grid-outline', 'visibility', gridVisibility);
     map.setPaintProperty('povo-grid-fill', 'fill-color', buildFillColorExpression(gm));
+    const hexFilter = buildHexRangeFilter(gm, hvr);
+    map.setFilter('povo-grid-fill', hexFilter);
+    map.setFilter('povo-grid-outline', hexFilter);
 
     const iconsVisible = pvm === 'icons' ? 'visible' : 'none';
     const heatmapVisible = pvm === 'heatmap' ? 'visible' : 'none';
@@ -251,6 +262,7 @@ export default function Map({
     map.setLayoutProperty('poi-unclustered-icon', 'visibility', iconsVisible);
     map.setLayoutProperty('poi-heatmap', 'visibility', heatmapVisible);
     map.setFilter('poi-unclustered-icon', unclusteredCategoryFilter(apc));
+    map.setPaintProperty('poi-heatmap', 'heatmap-radius', buildHeatmapRadiusExpression(hr));
 
     if (st) {
       map.setTerrain({ source: 'aws-terrain', exaggeration: 1.3 });
@@ -437,7 +449,7 @@ export default function Map({
         const props = feature.properties;
         const coords = feature.geometry.coordinates.slice();
 
-        new maplibregl.Popup({ closeButton: true, offset: 12, maxWidth: '260px' })
+        new maplibregl.Popup({ closeButton: true, offset: 12, maxWidth: '320px' })
           .setLngLat(coords)
           .setHTML(buildPoiPopupHtml(props))
           .addTo(map);
@@ -456,6 +468,19 @@ export default function Map({
   // (and the current prop-driven visual state) are re-applied once the new
   // style finishes loading. Skips the very first run (mount already set the
   // initial style via the constructor above).
+  //
+  // { diff: false } is required here: MapLibre's default setStyle() diffs the
+  // *current* style (which includes our injected hex/POI/heatmap/draw layers)
+  // against the *new* style JSON (which never contains them, since they're
+  // added programmatically, not part of any style.json). The diff then emits
+  // removeLayer/removeSource ops for everything not in the new style -- i.e.
+  // it silently deletes our custom layers -- and because that diff path
+  // mutates the existing Style object rather than recreating it, 'style.load'
+  // never fires, so the re-add below never runs either. This is what caused
+  // hexagons/clusters/heatmap to disappear after switching basemaps (reported
+  // 2026-07-26). diff:false forces a full style reload, which reliably fires
+  // 'style.load' and gives us a clean slate to rebuild on, matching what the
+  // comments below already assumed was happening.
   useEffect(() => {
     if (!didMountStyleRef.current) {
       didMountStyleRef.current = true;
@@ -464,7 +489,7 @@ export default function Map({
     const map = mapRef.current;
     if (!map) return;
 
-    map.setStyle(buildMapStyleDefinition(mapStyle));
+    map.setStyle(buildMapStyleDefinition(mapStyle), { diff: false });
     map.once('style.load', () => {
       addCustomLayers(map);
       applyCurrentState(map);
@@ -499,9 +524,23 @@ export default function Map({
 
   useEffect(() => {
     const map = mapRef.current;
+    if (!map || !loaded || !map.getLayer('povo-grid-fill')) return;
+    const hexFilter = buildHexRangeFilter(gridMetric, hexValueRange);
+    map.setFilter('povo-grid-fill', hexFilter);
+    map.setFilter('povo-grid-outline', hexFilter);
+  }, [gridMetric, hexValueRange, loaded]);
+
+  useEffect(() => {
+    const map = mapRef.current;
     if (!map || !loaded || !map.getLayer('poi-unclustered-icon')) return;
     map.setFilter('poi-unclustered-icon', unclusteredCategoryFilter(activePoiCategories));
   }, [activePoiCategories, loaded]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !loaded || !map.getLayer('poi-heatmap')) return;
+    map.setPaintProperty('poi-heatmap', 'heatmap-radius', buildHeatmapRadiusExpression(heatmapRadius));
+  }, [heatmapRadius, loaded]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -600,7 +639,7 @@ export default function Map({
     map.flyTo({ center: [lng, lat], zoom: Math.max(map.getZoom(), 17), duration: 1200 });
 
     const openPopup = () => {
-      new maplibregl.Popup({ closeButton: true, offset: 12, maxWidth: '260px' })
+      new maplibregl.Popup({ closeButton: true, offset: 12, maxWidth: '320px' })
         .setLngLat([lng, lat])
         .setHTML(buildPoiPopupHtml(flyToTarget))
         .addTo(map);

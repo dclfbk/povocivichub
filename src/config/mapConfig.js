@@ -41,6 +41,19 @@ export const MAP_STYLES = {
 };
 export const DEFAULT_MAP_STYLE = 'liberty';
 
+// Heatmap radius: user-adjustable via the sidebar slider (2026-07-26
+// feedback). The slider value is the radius (px) at zoom 15; zoom 11 scales
+// down proportionally (0.75x) so the map still zooms into visibly tighter
+// blobs the same way the previous fixed 15->30 stops did. DEFAULT_HEATMAP_RADIUS
+// (30) reproduces that exact original fixed radius when untouched.
+export const DEFAULT_HEATMAP_RADIUS = 30;
+export const HEATMAP_RADIUS_RANGE = { min: 10, max: 60 };
+
+export function buildHeatmapRadiusExpression(radius) {
+  const r = typeof radius === 'number' && Number.isFinite(radius) ? radius : DEFAULT_HEATMAP_RADIUS;
+  return ['interpolate', ['linear'], ['zoom'], 11, r * 0.5, 15, r];
+}
+
 export function buildMapStyleDefinition(styleKey) {
   const cfg = MAP_STYLES[styleKey] || MAP_STYLES[DEFAULT_MAP_STYLE];
   if (cfg.url) return cfg.url;
@@ -221,6 +234,38 @@ export function buildDominantCategoryExpression() {
   ];
 }
 
+// MapLibre filter expression restricting the hex grid to features whose
+// current metric value falls in [min, max] -- backs the legend's range
+// slider (2026-07-26 feedback). No-op (`null`, meaning "no filter") for the
+// categorical `dominant` metric, which has no single numeric value to range
+// over, and for a full [0, 1] range (the metrics' whole domain), so the
+// common case of "slider untouched" costs nothing extra.
+export function buildHexRangeFilter(metric, range) {
+  if (metric === 'dominant' || !range) return null;
+  const [min, max] = range;
+  if (min <= 0 && max >= 1) return null;
+  return ['all', ['>=', ['coalesce', ['get', metric], 0], min], ['<=', ['coalesce', ['get', metric], 0], max]];
+}
+
+// Five-level semantic reading of a 0-1 score (2026-07-26 feedback: "sappiamo
+// che zero è schifo, e che 1 è il massimo. Fai cinque indicatori semantici e
+// calcola in automatica dando il valore") -- currently used for the
+// Polifunzionalità Index card, but kept generic (any 0-1 score in, a level
+// out) rather than hardcoded to mix_index specifically.
+export const SEMANTIC_LEVELS_5 = [
+  { max: 0.2, label: 'Scarso', emoji: '😞', color: '#ef4444' },
+  { max: 0.4, label: 'Basso', emoji: '🙁', color: '#f97316' },
+  { max: 0.6, label: 'Medio', emoji: '😐', color: '#eab308' },
+  { max: 0.8, label: 'Buono', emoji: '🙂', color: '#84cc16' },
+  { max: Infinity, label: 'Ottimo', emoji: '😄', color: '#22c55e' }
+];
+
+export function getSemanticLevel5(score) {
+  const s = typeof score === 'number' && Number.isFinite(score) ? score : 0;
+  const index = SEMANTIC_LEVELS_5.findIndex((lvl) => s <= lvl.max);
+  return { ...SEMANTIC_LEVELS_5[index === -1 ? SEMANTIC_LEVELS_5.length - 1 : index], index: index === -1 ? SEMANTIC_LEVELS_5.length - 1 : index };
+}
+
 export function gridMetricGradientCss(metric) {
   const cfg = GRID_METRICS[metric] || GRID_METRICS.mix_index;
   if (!cfg || !cfg.stops) return null;
@@ -285,7 +330,17 @@ export const ICON_VISUALS = {
   market: { emoji: '🛒', color: CATEGORY_STYLES.cross_civic.color },
   association: { emoji: '🤝', color: CATEGORY_STYLES.cross_civic.color },
   information: { emoji: 'ℹ️', color: '#94a3b8' },
-  marker: { emoji: '📍', color: '#94a3b8' }
+  marker: { emoji: '📍', color: '#94a3b8' },
+  // Civic/public-building types that used to all fall back to the plain
+  // 'marker' pin (2026-07-26 feedback: keep them gray -- they aren't tied to
+  // one social-function color -- but give each its own glyph so a church
+  // reads differently from a town hall at a glance).
+  place_of_worship: { emoji: '⛪', color: '#94a3b8' },
+  community_centre: { emoji: '🏘️', color: '#94a3b8' },
+  townhall: { emoji: '🏢', color: '#94a3b8' },
+  social_facility: { emoji: '🫂', color: '#94a3b8' },
+  shelter: { emoji: '🛖', color: '#94a3b8' },
+  square: { emoji: '🏙️', color: '#94a3b8' }
 };
 
 // Renders a colored circular badge with an emoji glyph onto an offscreen canvas,
@@ -403,9 +458,48 @@ export function buildPlaceholderImageDataUri(iconName) {
   return `data:image/svg+xml,${encodeURIComponent(svg)}`;
 }
 
+// Only shown once the slope-aware walk is a genuinely noticeable step up from
+// a flat-ground walk covering the same distance -- below this, terrain is
+// negligible and calling it out just adds noise (2026-07-26 feedback: "la
+// fatica che si fa a piedi").
+const FATICA_DISPLAY_THRESHOLD_PCT = 10;
+
+function fatigueSuffix(pct) {
+  if (typeof pct !== 'number' || pct <= FATICA_DISPLAY_THRESHOLD_PCT) return '';
+  const glyph = pct > 40 ? '🥾' : '⛰️';
+  return ` <span style="color: #b45309;">${glyph} +${Math.round(pct)}% fatica</span>`;
+}
+
+// One row for a walking-reachability target (bus/parking): distance in
+// metres, Tobler-weighted walking time, and the fatica suffix above. Omitted
+// entirely if the pipeline hasn't computed it for this PoI (t_*_min missing
+// -- e.g. data generated before this field existed).
+function reachabilityRow(icon, label, distanceM, timeMin, fatiguePct) {
+  if (typeof distanceM !== 'number' || typeof timeMin !== 'number') return '';
+  return `
+    <div style="font-size: 11px; color: #334155; margin-top: 3px;">
+      ${icon} ${label}: <strong>${Math.round(distanceM)} m</strong> · ~${timeMin.toFixed(0)} min a piedi${fatigueSuffix(fatiguePct)}
+    </div>
+  `;
+}
+
+function detailRow(icon, label, value) {
+  if (!value || String(value).trim().length === 0) return '';
+  return `
+    <div style="font-size: 11px; color: #334155; margin-top: 3px;">
+      ${icon} ${label}: ${value}
+    </div>
+  `;
+}
+
 // Builds the PoI detail popup's inner HTML from a feature's properties.
 // Shared between the map's direct-click handler and the PoI table's
 // "row click -> fly to it" flow, so both produce the identical rich popup.
+// Surfaces every field the pipeline was able to derive for this PoI (OSM +
+// the circoscrizione geojson + computed accessibility/altitude/fatica),
+//2026-07-26 feedback -- previously only name/category/service-type/social
+// function showed, even though address/hours/contacts/website/disabled
+// access were already being collected and sitting unused in the data.
 export function buildPoiPopupHtml(props) {
   const badge = POPUP_CATEGORY_BADGES[props.category] || { label: props.category, color: '#94a3b8' };
   const serviceType = props.amenity_type || formatSubType(props.sub_type);
@@ -415,8 +509,28 @@ export function buildPoiPopupHtml(props) {
     : buildPlaceholderImageDataUri(props.icon_name);
   const secondaryCategories = (props.categoria_secondaria || '').split(',').filter(Boolean);
 
+  const detailsHtml = [
+    detailRow('📍', 'Indirizzo', props.indirizzo),
+    detailRow('🕐', 'Orari', props.orari_apertura),
+    // altitudine_m === 0 means "outside the DTM raster's coverage" (the
+    // pipeline's sampling fallback -- see _sample_raster_at_points in
+    // build_data.py), not a real sea-level reading in landlocked Trentino,
+    // so it's treated as missing data here rather than shown as 0.
+    typeof props.altitudine_m === 'number' && props.altitudine_m > 0
+      ? detailRow('⛰️', 'Altitudine', `${Math.round(props.altitudine_m)} m s.l.m.`) : '',
+    reachabilityRow('🚌', 'Fermata bus/treno più vicina', props.d_bus_m, props.t_bus_min, props.fatica_bus_pct),
+    reachabilityRow('🅿️', 'Parcheggio più vicino', props.d_parking_m, props.t_parking_min, props.fatica_parking_pct),
+    detailRow('♿', 'Accessibilità disabili', props.accessibilita_disabili),
+    detailRow('☎️', 'Contatti', props.contatti),
+    props.sito_web ? `
+      <div style="font-size: 11px; margin-top: 3px;">
+        🌐 <a href="${props.sito_web}" target="_blank" rel="noopener noreferrer" style="color: #4f46e5; text-decoration: underline;">Sito web</a>
+      </div>
+    ` : ''
+  ].filter(Boolean).join('');
+
   return `
-    <div style="font-family: Inter, sans-serif; width: 240px;">
+    <div style="font-family: Inter, sans-serif; width: 280px;">
       <img src="${imageSrc}" alt=""
            style="width: 100%; height: 120px; object-fit: cover; display: block;" />
       <div style="padding: 12px;">
@@ -444,6 +558,11 @@ export function buildPoiPopupHtml(props) {
         ${serviceType ? `
           <div style="font-size: 11px; color: #64748b; margin-top: 6px; font-weight: 600;">
             ${serviceType}
+          </div>
+        ` : ''}
+        ${detailsHtml ? `
+          <div style="margin-top: 8px; padding-top: 8px; border-top: 1px solid #e2e8f0;">
+            ${detailsHtml}
           </div>
         ` : ''}
         ${hasSocialFunction ? `

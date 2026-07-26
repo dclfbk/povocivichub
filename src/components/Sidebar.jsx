@@ -5,10 +5,6 @@ import {
   MapPin,
   Layers,
   BookOpen,
-  Bus,
-  GraduationCap,
-  Trees,
-  Leaf,
   Activity,
   Sparkles,
   RotateCcw,
@@ -30,7 +26,10 @@ import {
   MIXED_AREA_COLOR,
   buildHexSegments,
   buildCategorySegments,
-  MAP_STYLES
+  MAP_STYLES,
+  HEATMAP_RADIUS_RANGE,
+  SEMANTIC_LEVELS_5,
+  getSemanticLevel5
 } from '../config/mapConfig';
 
 const POI_VIEW_MODES = [
@@ -52,8 +51,13 @@ export default function Sidebar({
   onChangeGridMetric,
   activePoiCategories,
   onTogglePoiCategory,
+  heatmapRadius,
+  onChangeHeatmapRadius,
+  hexValueRange,
+  onChangeHexValueRange,
   onOpenAbout,
   onOpenTables,
+  onOpenCookieInfo,
   drawMode,
   onStartDraw,
   onCancelDraw,
@@ -168,6 +172,24 @@ export default function Sidebar({
               ))}
             </div>
 
+            {poiViewMode === 'heatmap' && (
+              <div className="space-y-1.5 pl-1">
+                <div className="flex items-center justify-between text-[11px] text-slate-400">
+                  <span>Raggio Mappa di Calore</span>
+                  <span className="font-mono text-slate-300">{heatmapRadius}px</span>
+                </div>
+                <input
+                  type="range"
+                  min={HEATMAP_RADIUS_RANGE.min}
+                  max={HEATMAP_RADIUS_RANGE.max}
+                  step={1}
+                  value={heatmapRadius}
+                  onChange={(e) => onChangeHeatmapRadius(Number(e.target.value))}
+                  className="w-full accent-indigo-500 cursor-pointer"
+                />
+              </div>
+            )}
+
             {poiViewMode === 'icons' && (
               <div className="grid grid-cols-2 gap-2 pl-1">
                 {ALL_POI_CATEGORIES.map((cat) => {
@@ -260,6 +282,58 @@ export default function Sidebar({
                         <span>0.5 Medio</span>
                         <span>1.0 Alto</span>
                       </div>
+
+                      {/* Range slider filtering the hex grid down to the
+                          selected value band on this metric (2026-07-26
+                          feedback). Two overlapping native <input type=range>
+                          thumbs sharing one track -- see .dual-range in
+                          index.css for the pointer-events trick that lets
+                          each thumb be dragged independently. */}
+                      <div className="pt-2 space-y-1.5 border-t border-slate-800 mt-1">
+                        <div className="flex items-center justify-between text-[10px] text-slate-400">
+                          <span>Filtra esagoni per range di valore</span>
+                          {(hexValueRange[0] > 0 || hexValueRange[1] < 1) && (
+                            <button
+                              type="button"
+                              onClick={() => onChangeHexValueRange([0, 1])}
+                              className="text-indigo-400 hover:text-indigo-300 transition font-semibold"
+                            >
+                              Reimposta
+                            </button>
+                          )}
+                        </div>
+                        <div className="relative h-4">
+                          <div className="absolute top-1/2 -translate-y-1/2 h-1 w-full rounded-full bg-slate-700" />
+                          <div
+                            className="absolute top-1/2 -translate-y-1/2 h-1 rounded-full bg-indigo-500"
+                            style={{ left: `${hexValueRange[0] * 100}%`, right: `${100 - hexValueRange[1] * 100}%` }}
+                          />
+                          <input
+                            type="range"
+                            min={0}
+                            max={1}
+                            step={0.01}
+                            value={hexValueRange[0]}
+                            onChange={(e) => onChangeHexValueRange([Math.min(Number(e.target.value), hexValueRange[1]), hexValueRange[1]])}
+                            className="dual-range absolute inset-0 w-full h-4"
+                            aria-label="Valore minimo"
+                          />
+                          <input
+                            type="range"
+                            min={0}
+                            max={1}
+                            step={0.01}
+                            value={hexValueRange[1]}
+                            onChange={(e) => onChangeHexValueRange([hexValueRange[0], Math.max(Number(e.target.value), hexValueRange[0])])}
+                            className="dual-range absolute inset-0 w-full h-4"
+                            aria-label="Valore massimo"
+                          />
+                        </div>
+                        <div className="flex justify-between text-[10px] text-slate-400 font-mono">
+                          <span>{hexValueRange[0].toFixed(2)}</span>
+                          <span>{hexValueRange[1].toFixed(2)}</span>
+                        </div>
+                      </div>
                     </>
                   )}
                 </div>
@@ -313,6 +387,32 @@ export default function Sidebar({
               {mixLevel.label}
             </span>
           </div>
+
+          {/* Five-level semantic indicator, auto-computed from the 0-1 score
+              (2026-07-26 feedback: "zero è schifo, uno è il massimo, fai
+              cinque indicatori semantici") -- placed right below the number
+              itself, distinct from the badge above (which reads the raw
+              mix_index against the "mixed-use" threshold specifically). */}
+          {(() => {
+            const semLevel = getSemanticLevel5(mixIndex ?? 0.6524);
+            return (
+              <div className="pt-1">
+                <div className="flex items-center gap-1">
+                  {SEMANTIC_LEVELS_5.map((lvl, i) => (
+                    <div
+                      key={lvl.label}
+                      className="h-1.5 flex-1 rounded-full transition-opacity"
+                      style={{ backgroundColor: lvl.color, opacity: i === semLevel.index ? 1 : 0.25 }}
+                    />
+                  ))}
+                </div>
+                <div className="flex items-center gap-1.5 mt-1.5 text-xs font-semibold" style={{ color: semLevel.color }}>
+                  <span>{semLevel.emoji}</span>
+                  <span>{semLevel.label}</span>
+                </div>
+              </div>
+            );
+          })()}
 
           {/* Category Profile Stacked Bar */}
           <div className="pt-2 space-y-2">
@@ -386,75 +486,6 @@ export default function Sidebar({
             </div>
           )}
         </section>
-
-        {/* Luoghi Pubblici */}
-        <section className="space-y-3">
-          <div className="flex items-center gap-2 text-sm font-semibold text-slate-200">
-            <Layers className="w-4 h-4 text-emerald-400" /> Luoghi Pubblici
-          </div>
-
-          <div className="space-y-2.5 text-xs">
-            <div className="flex items-start gap-3 p-3 glass-card rounded-xl border border-slate-800 hover:border-slate-700 transition">
-              <div className="p-2 bg-emerald-500/20 text-emerald-300 rounded-lg shrink-0 mt-0.5">
-                <Leaf className="w-4 h-4" />
-              </div>
-              <div>
-                <div className="font-semibold text-slate-200">Parchi & Giardini Pubblici</div>
-                <div className="text-slate-400 mt-0.5">
-                  Aree verdi di quartiere (parchi e giardini) come spazi di incontro e beni comuni condivisi.
-                </div>
-              </div>
-            </div>
-
-            <div className="flex items-start gap-3 p-3 glass-card rounded-xl border border-slate-800 hover:border-slate-700 transition">
-              <div className="p-2 bg-amber-500/20 text-amber-300 rounded-lg shrink-0 mt-0.5">
-                <BookOpen className="w-4 h-4" />
-              </div>
-              <div>
-                <div className="font-semibold text-slate-200">Punti di Bookcrossing (Public Bookcase)</div>
-                <div className="text-slate-400 mt-0.5">
-                  Spazi ad accesso libero per lo scambio librario e la condivisione culturale nel quartiere.
-                </div>
-              </div>
-            </div>
-
-            <div className="flex items-start gap-3 p-3 glass-card rounded-xl border border-slate-800 hover:border-slate-700 transition">
-              <div className="p-2 bg-blue-500/20 text-blue-300 rounded-lg shrink-0 mt-0.5">
-                <GraduationCap className="w-4 h-4" />
-              </div>
-              <div>
-                <div className="font-semibold text-slate-200">Poli Universitari & Ricerca (Povo 1 & 2, FBK)</div>
-                <div className="text-slate-400 mt-0.5">
-                  Hub scientifico di eccellenza con forte afflusso giornaliero di studenti e ricercatori.
-                </div>
-              </div>
-            </div>
-
-            <div className="flex items-start gap-3 p-3 glass-card rounded-xl border border-slate-800 hover:border-slate-700 transition">
-              <div className="p-2 bg-purple-500/20 text-purple-300 rounded-lg shrink-0 mt-0.5">
-                <Bus className="w-4 h-4" />
-              </div>
-              <div>
-                <div className="font-semibold text-slate-200">Nodo TPL (Fermate Urbane ed Extraurbane)</div>
-                <div className="text-slate-400 mt-0.5">
-                  71 fermate TTE integrate con 536 corse feriali di punta e 3.053 corse serali/festive.
-                </div>
-              </div>
-            </div>
-
-            <div className="flex items-start gap-3 p-3 glass-card rounded-xl border border-slate-800 hover:border-slate-700 transition">
-              <div className="p-2 bg-emerald-500/20 text-emerald-300 rounded-lg shrink-0 mt-0.5">
-                <Trees className="w-4 h-4" />
-              </div>
-              <div>
-                <div className="font-semibold text-slate-200">Rete Outdoor & Sentieristica</div>
-                <div className="text-slate-400 mt-0.5">
-                  Accessibilità pedonale ai sentieri della collina orientale, punti panoramici e aree picnic.
-                </div>
-              </div>
-            </div>
-          </div>
-        </section>
       </div>
 
       {/* Footer */}
@@ -468,6 +499,13 @@ export default function Sidebar({
         >
           github.com/dclfbk/povocivichub
         </a>
+        {' '}&bull;{' '}
+        <button
+          onClick={onOpenCookieInfo}
+          className="hover:text-slate-200 underline transition"
+        >
+          Cookie
+        </button>
       </footer>
     </aside>
   );

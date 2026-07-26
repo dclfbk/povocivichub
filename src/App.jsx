@@ -3,10 +3,13 @@ import Map from './components/Map';
 import Sidebar from './components/Sidebar';
 import AboutModal from './components/AboutModal';
 import CategoryTablesModal from './components/CategoryTablesModal';
+import CookieConsent from './components/CookieConsent';
 import { Menu, X, Layers } from 'lucide-react';
 import { parseUrlState, buildUrlSearch } from './utils/urlState';
+import { DEFAULT_HEATMAP_RADIUS } from './config/mapConfig';
 
 const INTRO_SEEN_KEY = 'povoCivicHub_introSeen';
+const COOKIE_CONSENT_KEY = 'povoCivicHub_cookieConsent';
 
 export default function App() {
   // Parsed once on first render -- everything visible on screen (camera,
@@ -26,6 +29,16 @@ export default function App() {
     }
   });
   const [isTablesOpen, setIsTablesOpen] = useState(false);
+  // Informativa cookie/local storage -- same first-visit-only pattern as
+  // isAboutOpen above, but reopenable any time via a dedicated footer button
+  // rather than the header's book icon (2026-07-26 feedback).
+  const [isCookieBannerOpen, setIsCookieBannerOpen] = useState(() => {
+    try {
+      return !localStorage.getItem(COOKIE_CONSENT_KEY);
+    } catch {
+      return true;
+    }
+  });
   const [flyToTarget, setFlyToTarget] = useState(null);
 
   // Layers default to whatever the URL says, falling back to off/2D.
@@ -35,6 +48,15 @@ export default function App() {
   const [gridMetric, setGridMetric] = useState(initialUrlState.gridMetric);
   const [activePoiCategories, setActivePoiCategories] = useState(initialUrlState.activePoiCategories);
   const [mapStyle, setMapStyle] = useState(initialUrlState.mapStyle);
+  const [heatmapRadius, setHeatmapRadius] = useState(DEFAULT_HEATMAP_RADIUS);
+  // Range filter over the current hex legend metric's [0,1] domain
+  // (2026-07-26 feedback: dragging the legend should filter which hexagons
+  // show). Reset to the full domain whenever the metric itself changes --
+  // a range chosen for e.g. mix_index has no meaningful carry-over to res_score.
+  const [hexValueRange, setHexValueRange] = useState([0, 1]);
+  useEffect(() => {
+    setHexValueRange([0, 1]);
+  }, [gridMetric]);
 
   // Current camera -- initialized from the URL, kept in sync afterwards via
   // Map's onViewStateChange (fired on every 'moveend', which in MapLibre
@@ -106,6 +128,16 @@ export default function App() {
     setClearDrawSignal((n) => n + 1);
   };
 
+  const handleAcceptCookies = () => {
+    setIsCookieBannerOpen(false);
+    try {
+      localStorage.setItem(COOKIE_CONSENT_KEY, '1');
+    } catch {
+      // localStorage unavailable (e.g. private browsing) -- the banner will
+      // just reopen next visit, same fallback as the intro dialog below.
+    }
+  };
+
   const handleCloseAbout = () => {
     setIsAboutOpen(false);
     try {
@@ -151,8 +183,13 @@ export default function App() {
           onChangeGridMetric={setGridMetric}
           activePoiCategories={activePoiCategories}
           onTogglePoiCategory={handleTogglePoiCategory}
+          heatmapRadius={heatmapRadius}
+          onChangeHeatmapRadius={setHeatmapRadius}
+          hexValueRange={hexValueRange}
+          onChangeHexValueRange={setHexValueRange}
           onOpenAbout={() => setIsAboutOpen(true)}
           onOpenTables={() => setIsTablesOpen(true)}
+          onOpenCookieInfo={() => setIsCookieBannerOpen(true)}
           drawMode={drawMode}
           onStartDraw={handleStartDraw}
           onCancelDraw={handleCancelDraw}
@@ -173,6 +210,8 @@ export default function App() {
           showTerrain={showTerrain}
           gridMetric={gridMetric}
           activePoiCategories={activePoiCategories}
+          heatmapRadius={heatmapRadius}
+          hexValueRange={hexValueRange}
           poisData={poisData}
           drawMode={drawMode}
           onDrawComplete={handleDrawComplete}
@@ -201,6 +240,7 @@ export default function App() {
       </main>
 
       <AboutModal isOpen={isAboutOpen} onClose={handleCloseAbout} />
+      <CookieConsent isOpen={isCookieBannerOpen} onAccept={handleAcceptCookies} />
       <CategoryTablesModal
         isOpen={isTablesOpen}
         onClose={() => setIsTablesOpen(false)}

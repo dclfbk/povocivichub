@@ -47,6 +47,47 @@
   border-left-color: rgba(15, 23, 42, 0.95) !important;
 }
 
+/* Dual-thumb range slider (hex legend value filter): two overlapping native
+   <input type=range> elements share one track. pointer-events:none on the
+   input lets clicks pass through to whichever thumb is on top; pointer-events
+   auto on just the thumb (::-webkit-slider-thumb / ::-moz-range-thumb) makes
+   each one independently draggable. */
+.dual-range {
+  -webkit-appearance: none;
+  appearance: none;
+  background: transparent;
+  pointer-events: none;
+}
+.dual-range::-webkit-slider-runnable-track {
+  -webkit-appearance: none;
+  height: 4px;
+  background: transparent;
+}
+.dual-range::-moz-range-track {
+  height: 4px;
+  background: transparent;
+}
+.dual-range::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  pointer-events: auto;
+  width: 14px;
+  height: 14px;
+  margin-top: -5px;
+  border-radius: 999px;
+  background: #ffffff;
+  border: 2px solid #6366f1;
+  cursor: pointer;
+}
+.dual-range::-moz-range-thumb {
+  pointer-events: auto;
+  width: 14px;
+  height: 14px;
+  border-radius: 999px;
+  background: #ffffff;
+  border: 2px solid #6366f1;
+  cursor: pointer;
+}
+
 /* Custom Scrollbar */
 ::-webkit-scrollbar {
   width: 6px;

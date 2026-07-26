@@ -113,6 +113,17 @@ PUBLIC_INTEREST_SUB_TYPES = {
     'picnic_site', 'nature_reserve', 'amphitheatre', 'museum', 'library'
 }
 
+# Icon names that represent a constructed sport facility (pitches, courts,
+# sports centres) rather than an open-air natural feature like a climbing
+# crag. Used to fully drop private-access ones from the dataset (2026-07-26
+# feedback: "sarei per eliminarli" -- a private=access facility is even more
+# restricted than a residenti-only one, since only the owner's guests can use
+# it, so unlike other private PoIs (which stay on the map/table but are
+# excluded from indicators, see calculate_scores_and_mixite) these shouldn't
+# be shown at all). Deliberately excludes 'climbing': an outdoor crag isn't a
+# constructed "impianto" in the sense the feedback meant.
+SPORT_FACILITY_ICONS = {'sport', 'basketball_court', 'volleyball_court', 'tennis_court'}
+
 # Places that hand out ready-to-eat/takeaway food: pizza al taglio, pizzerie,
 # fast-food, ristoranti, bar, supermercati (2026-07-25 feedback). Used to
 # gate whether a picnic area is realistically useful to pendolari on a lunch
@@ -305,6 +316,17 @@ ICON_MAP = {
     ('office', 'research'): 'college',
     ('office', 'educational_institution'): 'college',
     ('office', 'it'): 'office_it',
+    # Civic/"Luoghi Pubblici" building types that used to all collapse onto the
+    # generic gray marker/info pin, making a church indistinguishable from a
+    # town hall on the map (2026-07-26 feedback: keep the gray background --
+    # these aren't tied to one social-function color the way e.g. sport is --
+    # but give each its own glyph so the icon itself says what the place is).
+    ('amenity', 'place_of_worship'): 'place_of_worship',
+    ('amenity', 'community_centre'): 'community_centre',
+    ('amenity', 'townhall'): 'townhall',
+    ('amenity', 'social_facility'): 'social_facility',
+    ('amenity', 'shelter'): 'shelter',
+    ('place', 'square'): 'square',
 }
 
 
@@ -660,6 +682,12 @@ def classify_and_transform_pois(raw_pois_utm, named_routes_buffer=None):
 
         icon_name = assign_icon_name(historic, amenity, tourism, leisure, highway, railway,
                                       sport, office, shop, public_transport)
+        # A bus-stop shelter is transit infra (already routed to category=
+        # 'pendolari' above), not the generic civic "shelter" glyph added for
+        # amenity=shelter -- keep it visually grouped with the other transit
+        # icons instead.
+        if amenity == 'shelter' and is_bus_shelter:
+            icon_name = 'bus'
 
         # "Campo da <sport>" instead of the raw OSM word "pitch" (2026-07-25 feedback).
         amenity_type = (format_pitch_label(sport) if sub_type == 'pitch' else
@@ -1183,8 +1211,43 @@ def verify_image_urls(gdf_utm, gdf_wgs84):
     return gdf_utm, gdf_wgs84, {'n_checked': n_checked, 'n_broken': n_broken}
 
 
-def integrate_dtm_and_tobler(G_utm, dtm_path):
-    """Integrate DTM raster and compute Tobler travel times on pedestrian edges."""
+# Tobler's hiking function (1993), offset by +0.05 the same way the edge-weight
+# loop below applies it -- factored out so the "flat ground" baseline used for
+# the per-PoI fatica index (see calculate_accessibility_distances) is provably
+# the same formula, evaluated at grade=0, rather than a separately-hardcoded
+# number that could drift out of sync.
+def tobler_speed_kmh(grade):
+    return 6.0 * math.exp(-3.5 * abs(grade + 0.05))
+
+
+FLAT_WALK_SPEED_MS = tobler_speed_kmh(0.0) / 3.6
+
+
+def _sample_raster_at_points(src, dtm_arr, nodata, xs, ys):
+    """Nearest-pixel DTM lookup for a batch of UTM (x, y) points, 0.0 if out of bounds/nodata."""
+    values = []
+    for x, y in zip(xs, ys):
+        try:
+            row, col = src.index(x, y)
+            if 0 <= row < src.height and 0 <= col < src.width:
+                val = dtm_arr[row, col]
+                if nodata is not None and val == nodata:
+                    val = 0.0
+            else:
+                val = 0.0
+        except Exception:
+            val = 0.0
+        values.append(float(val))
+    return values
+
+
+def integrate_dtm_and_tobler(G_utm, dtm_path, gdf_pois_utm=None):
+    """
+    Integrate DTM raster, compute Tobler travel times on pedestrian edges, and
+    (if gdf_pois_utm is given) sample each PoI's own altitude directly from the
+    raster -- reuses the single rasterio.open() rather than opening the file
+    twice.
+    """
     print(f"--> Integrating DTM raster ({dtm_path}) and computing Tobler travel times...")
     with rasterio.open(dtm_path) as src:
         dtm_arr = src.read(1)
@@ -1212,14 +1275,21 @@ def integrate_dtm_and_tobler(G_utm, dtm_path):
             z_u = node_elevations.get(u, 0.0)
             z_v = node_elevations.get(v, 0.0)
             grade = (z_v - z_u) / length
-            speed_kmh = 6.0 * math.exp(-3.5 * abs(grade + 0.05))
+            speed_kmh = tobler_speed_kmh(grade)
             travel_time = length / max(speed_kmh / 3.6, 0.001)
 
             data['grade'] = grade
             data['travel_time'] = travel_time
 
+        if gdf_pois_utm is not None and len(gdf_pois_utm) > 0:
+            poi_xs = [g.x for g in gdf_pois_utm.geometry]
+            poi_ys = [g.y for g in gdf_pois_utm.geometry]
+            gdf_pois_utm['altitudine_m'] = np.round(
+                _sample_raster_at_points(src, dtm_arr, nodata, poi_xs, poi_ys), 1
+            )
+
     print("    DTM integration and Tobler travel time calculations complete.")
-    return G_utm
+    return G_utm, gdf_pois_utm
 
 
 def parse_gtfs_time(time_str):
@@ -1415,13 +1485,41 @@ def calculate_accessibility_distances(gdf_pois_utm, G_utm, raw_pois_utm):
     dist_to_bus = nx.multi_source_dijkstra_path_length(G_undirected, bus_nodes, weight='length') if bus_nodes else {}
     dist_to_parking = nx.multi_source_dijkstra_path_length(G_undirected, parking_nodes, weight='length') if parking_nodes else {}
 
+    # Tobler-weighted (slope-aware) walking TIME to the same sources, reusing
+    # the 'travel_time' edge attribute computed in integrate_dtm_and_tobler --
+    # this is what the per-PoI "fatica" (effort) index below is derived from,
+    # alongside the flat-distance d_bus_m/d_parking_m above.
+    time_to_bus = (nx.multi_source_dijkstra_path_length(G_undirected, bus_nodes, weight='travel_time')
+                   if bus_nodes else {})
+    time_to_parking = (nx.multi_source_dijkstra_path_length(G_undirected, parking_nodes, weight='travel_time')
+                        if parking_nodes else {})
+
     poi_xs = [g.x for g in gdf_pois_utm.geometry]
     poi_ys = [g.y for g in gdf_pois_utm.geometry]
     poi_nodes = ox.distance.nearest_nodes(G_utm, poi_xs, poi_ys)
 
     FAR = 5000.0  # metres: fallback when unreachable within the extracted graph
-    gdf_pois_utm['d_bus_m'] = np.round([dist_to_bus.get(n, FAR) for n in poi_nodes], 1)
-    gdf_pois_utm['d_parking_m'] = np.round([dist_to_parking.get(n, FAR) for n in poi_nodes], 1)
+    FAR_TIME = FAR / FLAT_WALK_SPEED_MS  # matching time fallback, same FAR distance at flat pace
+    d_bus = np.array([dist_to_bus.get(n, FAR) for n in poi_nodes])
+    d_parking = np.array([dist_to_parking.get(n, FAR) for n in poi_nodes])
+    t_bus = np.array([time_to_bus.get(n, FAR_TIME) for n in poi_nodes])
+    t_parking = np.array([time_to_parking.get(n, FAR_TIME) for n in poi_nodes])
+
+    gdf_pois_utm['d_bus_m'] = np.round(d_bus, 1)
+    gdf_pois_utm['d_parking_m'] = np.round(d_parking, 1)
+    gdf_pois_utm['t_bus_min'] = np.round(t_bus / 60.0, 1)
+    gdf_pois_utm['t_parking_min'] = np.round(t_parking / 60.0, 1)
+
+    # "Fatica" (effort) index: how much longer the real, slope-aware walk
+    # takes versus a flat-ground walk covering the same network distance, as a
+    # percentage. 0% means effectively flat; clipped at 0 on the (occasional,
+    # short-downhill) side where Tobler's function briefly outpaces the flat
+    # baseline, since a negative "effort" percentage would read as a confusing
+    # double-negative to a lay user rather than "easier than flat".
+    flat_time_bus = np.maximum(d_bus / FLAT_WALK_SPEED_MS, 0.001)
+    flat_time_parking = np.maximum(d_parking / FLAT_WALK_SPEED_MS, 0.001)
+    gdf_pois_utm['fatica_bus_pct'] = np.round(np.clip((t_bus / flat_time_bus - 1.0) * 100, 0, None), 0)
+    gdf_pois_utm['fatica_parking_pct'] = np.round(np.clip((t_parking / flat_time_parking - 1.0) * 100, 0, None), 0)
     return gdf_pois_utm
 
 
@@ -1670,7 +1768,8 @@ def write_report(path, stats, gdf_pois_wgs84):
     enrich_stats = stats['enrich']
     image_check_stats = stats['image_check']
     manual_count = stats['manual_count']
-    total_final = dedup_stats['n_final'] + manual_count
+    n_private_sport_removed = stats['n_private_sport_removed']
+    total_final = dedup_stats['n_final'] + manual_count - n_private_sport_removed
 
     lines = []
     lines.append("# Report di Elaborazione — Povo Civic Hub")
@@ -1691,6 +1790,10 @@ def write_report(path, stats, gdf_pois_wgs84):
     lines.append(f"- PoI solo locali (nessun corrispondente OSM): **{dedup_stats['n_local_standalone']}**")
     lines.append(f"- PoI solo OSM (nessun corrispondente locale): **{dedup_stats['n_osm_standalone']}**")
     lines.append(f"- PoI iniettati manualmente (assenti da OSM e dal dataset locale): **{manual_count}**")
+    lines.append(
+        f"- Impianti sportivi ad accesso privato rimossi (non solo esclusi dagli indicatori, "
+        f"eliminati dal dataset): **{n_private_sport_removed}**"
+    )
     lines.append(f"- **Totale PoI finali nel dataset unificato: {total_final}**")
     lines.append("")
 
@@ -1756,6 +1859,26 @@ def write_report(path, stats, gdf_pois_wgs84):
     print("    Report written.")
 
 
+def drop_private_sport_facilities(gdf_pois_utm, gdf_pois_wgs84):
+    """
+    Fully remove sport facilities (pitches, courts, sports centres -- see
+    SPORT_FACILITY_ICONS) whose OSM `access` tag marks them non-public. Unlike
+    the broader accesso_pubblico exclusion in calculate_scores_and_mixite
+    (which keeps private PoIs visible on the map/table but drops them from the
+    indicator calculation), these are dropped from the dataset entirely
+    (2026-07-26 feedback): a private sport facility isn't just "not a
+    neighbourhood service," it's stricter than even a residenti-only one --
+    only the owner's own guests can use it, so it has no place being shown as
+    a usable community amenity at all.
+    """
+    mask = gdf_pois_utm['icon_name'].isin(SPORT_FACILITY_ICONS) & (gdf_pois_utm['accesso_pubblico'] == False)  # noqa: E712
+    n_removed = int(mask.sum())
+    print(f"--> Removing private-access sport facilities entirely (not just from indicators): {n_removed}")
+    gdf_pois_utm = gdf_pois_utm.loc[~mask].reset_index(drop=True)
+    gdf_pois_wgs84 = gdf_pois_wgs84.loc[~mask.values].reset_index(drop=True)
+    return gdf_pois_utm, gdf_pois_wgs84, n_removed
+
+
 def main():
     print("=== POVO CIVIC HUB - GEOGRAPHIC DATA ANALYSIS PIPELINE (ICC EDITION) ===")
     gdf_wgs84, gdf_utm = load_boundary()
@@ -1777,15 +1900,18 @@ def main():
         pd.concat([gdf_pois_wgs84, manual_wgs84], ignore_index=True), geometry='geometry', crs=WGS84_CRS
     )
 
+    gdf_pois_utm, gdf_pois_wgs84, n_private_sport_removed = drop_private_sport_facilities(gdf_pois_utm, gdf_pois_wgs84)
+
     gdf_pois_utm, gdf_pois_wgs84, enrich_stats = enrich_missing_data(gdf_pois_utm, gdf_pois_wgs84)
     gdf_pois_utm, gdf_pois_wgs84, image_check_stats = verify_image_urls(gdf_pois_utm, gdf_pois_wgs84)
 
-    G_utm = integrate_dtm_and_tobler(G_utm, DTM_INPUT)
+    G_utm, gdf_pois_utm = integrate_dtm_and_tobler(G_utm, DTM_INPUT, gdf_pois_utm)
+    gdf_pois_wgs84['altitudine_m'] = gdf_pois_utm['altitudine_m'].values
     gtfs_stops = process_gtfs_feeds(gdf_utm)
 
     gdf_pois_utm = calculate_accessibility_distances(gdf_pois_utm, G_utm, raw_pois_utm)
-    gdf_pois_wgs84['d_bus_m'] = gdf_pois_utm['d_bus_m'].values
-    gdf_pois_wgs84['d_parking_m'] = gdf_pois_utm['d_parking_m'].values
+    for col in ['d_bus_m', 'd_parking_m', 't_bus_min', 't_parking_min', 'fatica_bus_pct', 'fatica_parking_pct']:
+        gdf_pois_wgs84[col] = gdf_pois_utm[col].values
 
     gdf_pois_utm = calculate_icc(gdf_pois_utm)
     for col in ['w_cat', 'a_bus', 'q_data', 'icc_score']:
@@ -1802,7 +1928,8 @@ def main():
         'dedup': dedup_stats,
         'enrich': enrich_stats,
         'image_check': image_check_stats,
-        'manual_count': len(manual_utm)
+        'manual_count': len(manual_utm),
+        'n_private_sport_removed': n_private_sport_removed
     }, gdf_pois_wgs84)
 
     print("=== PIPELINE EXECUTED SUCCESSFULLY ===")

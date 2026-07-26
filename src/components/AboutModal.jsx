@@ -1,5 +1,5 @@
 import React, { useEffect } from 'react';
-import { X, BookOpen, Users, ShieldCheck, Eye, Mountain, Sigma } from 'lucide-react';
+import { X, BookOpen, Users, ShieldCheck, Eye, Mountain, Sigma, Leaf, GraduationCap, Bus, Trees } from 'lucide-react';
 
 const MODELS = [
   {
@@ -29,11 +29,62 @@ const MODELS = [
   }
 ];
 
+// Moved here from the sidebar (2026-07-26 feedback: as a standalone sidebar
+// section it looked like an interactive legend/filter, but it's actually
+// just background context on the neighbourhood -- it belongs with the rest
+// of the "why this map, what am I looking at" explainer, not floating
+// unconnected to any data layer.
+const PLACES = [
+  {
+    icon: Leaf,
+    color: 'emerald',
+    title: 'Parchi & Giardini Pubblici',
+    text: 'Aree verdi di quartiere (parchi e giardini) come spazi di incontro e beni comuni condivisi.'
+  },
+  {
+    icon: BookOpen,
+    color: 'amber',
+    title: 'Punti di Bookcrossing (Public Bookcase)',
+    text: 'Spazi ad accesso libero per lo scambio librario e la condivisione culturale nel quartiere.'
+  },
+  {
+    icon: GraduationCap,
+    color: 'blue',
+    title: 'Poli Universitari & Ricerca (Povo 1 & 2, FBK, UniTrento)',
+    // 2026-07-26 feedback: FBK e UniTrento non sono "luoghi pubblici" in
+    // senso stretto -- contano soprattutto come attrattori di pendolari
+    // (studenti, ricercatori) verso Povo, quindi il testo li lega
+    // esplicitamente alla categoria Pendolari usata nell'analisi.
+    text: "Hub scientifico e universitario di eccellenza che attira ogni giorno un forte flusso di studenti, ricercatori e lavoratori: sono tra i principali motori della categoria \"Pendolari\" nell'analisi, più che semplici luoghi pubblici."
+  },
+  {
+    icon: Bus,
+    color: 'purple',
+    title: 'Nodo TPL (Fermate Urbane ed Extraurbane)',
+    text: '71 fermate TTE integrate con 536 corse feriali di punta e 3.053 corse serali/festive.'
+  },
+  {
+    icon: Trees,
+    color: 'emerald',
+    title: 'Rete Outdoor & Sentieristica',
+    text: 'Accessibilità pedonale ai sentieri della collina orientale, punti panoramici e aree picnic.'
+  }
+];
+
 const CREDITS = [
   { label: 'Dati geografici', value: 'OpenStreetMap · Provincia Autonoma di Trento (DTM 1m)' },
   { label: 'Trasporti', value: 'GTFS Trentino Trasporti' },
   { label: 'Mappa base', value: 'OpenFreeMap Liberty' }
 ];
+
+// Tailwind needs full, static class strings to find them at build time --
+// can't interpolate `bg-${color}-500/20` dynamically.
+const PLACE_COLOR_CLASSES = {
+  emerald: 'bg-emerald-500/20 text-emerald-300',
+  amber: 'bg-amber-500/20 text-amber-300',
+  blue: 'bg-blue-500/20 text-blue-300',
+  purple: 'bg-purple-500/20 text-purple-300'
+};
 
 export default function AboutModal({ isOpen, onClose }) {
   useEffect(() => {
@@ -88,6 +139,27 @@ export default function AboutModal({ isOpen, onClose }) {
               {MODELS.map(({ icon: Icon, title, text }) => (
                 <div key={title} className="flex items-start gap-3 p-3 glass-card rounded-xl border border-slate-800">
                   <div className="p-2 bg-indigo-500/20 text-indigo-300 rounded-lg shrink-0 mt-0.5">
+                    <Icon className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <div className="font-semibold text-slate-200">{title}</div>
+                    <div className="text-slate-400 mt-0.5 text-xs leading-relaxed">{text}</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </section>
+
+          <section className="space-y-3">
+            <h3 className="text-xs font-bold text-indigo-400 uppercase tracking-widest">Il Contesto di Povo</h3>
+            <p className="text-slate-400 text-xs leading-relaxed">
+              Alcuni elementi del territorio che spiegano perché Povo mescola così tanti tipi diversi
+              di presenza: residenti, pendolari e visitatori occasionali.
+            </p>
+            <div className="space-y-2.5">
+              {PLACES.map(({ icon: Icon, color, title, text }) => (
+                <div key={title} className="flex items-start gap-3 p-3 glass-card rounded-xl border border-slate-800">
+                  <div className={`p-2 rounded-lg shrink-0 mt-0.5 ${PLACE_COLOR_CLASSES[color]}`}>
                     <Icon className="w-4 h-4" />
                   </div>
                   <div>
