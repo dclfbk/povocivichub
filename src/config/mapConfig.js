@@ -281,7 +281,6 @@ export const MIX_THRESHOLD = 0.65;
 // (already used by residenti/pendolari/occasionali/cross_civic) so it reads
 // as its own, fifth thing at a glance.
 export const MIXED_AREA_COLOR = '#22d3ee';
-
 export function buildFillColorExpression(metric) {
   if (metric === 'dominant') return buildDominantCategoryExpression();
   const cfg = GRID_METRICS[metric] || GRID_METRICS.mix_index;
@@ -290,16 +289,35 @@ export function buildFillColorExpression(metric) {
   return expr;
 }
 
+// Below this combined res+comm+occa signal, a hexagon is considered to have
+// no real neighbourhood-service presence at all -- same threshold and
+// rationale as build_data.py's own SIGNAL_FLOOR (calculate_scores_and_mixite,
+// which already forces mix_index=0 below it: "not enough real signal to call
+// the area mixed"). Kept in sync by hand, same as every other Python<->JS
+// constant in this file.
+const SIGNAL_FLOOR = 0.15;
+
 // Colors a hexagon by whichever of res_score/comm_score/occa_score dominates,
 // or by MIXED_AREA_COLOR when mix_index shows a genuine 2+-category balance --
 // so an area's main "vocation" (or its mixed-use status) reads at a glance,
-// without clicking (2026-07-25 feedback).
+// without clicking (2026-07-25 feedback). Below SIGNAL_FLOOR, falls straight
+// to occasionali rather than comparing near-zero noise (2026-07-28 feedback:
+// the pipeline's proximity decay, see compute_raw_poi_score in build_data.py,
+// never truly hits zero, so a hex on bare hillside far from every PoI still
+// got a razor-thin "residenti" win purely from decay noise -- "in zone di
+// montagna vedo il colore di residenti"). Defaulting to occasionali instead
+// of a separate "no data" color is a deliberate choice, not just a
+// simplification: this project's whole outdoor-sport focus (see
+// project_outdoor_sport_focus) already treats undeveloped hillside/woodland
+// as occasionali territory -- Sella Marzola is a scenic spot in its own
+// right, not "nothing".
 export function buildDominantCategoryExpression() {
   const r = ['coalesce', ['get', 'res_score'], 0];
   const c = ['coalesce', ['get', 'comm_score'], 0];
   const o = ['coalesce', ['get', 'occa_score'], 0];
   return [
     'case',
+    ['<=', ['+', r, c, o], SIGNAL_FLOOR], CATEGORY_STYLES.occasionali.color,
     ['>=', ['coalesce', ['get', 'mix_index'], 0], MIX_THRESHOLD], MIXED_AREA_COLOR,
     ['all', ['>=', r, c], ['>=', r, o]], CATEGORY_STYLES.residenti.color,
     ['>=', c, o], CATEGORY_STYLES.pendolari.color,
