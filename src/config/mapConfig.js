@@ -468,7 +468,11 @@ export const ICON_VISUALS = {
   nature_reserve: { emoji: '🌲', color: CATEGORY_STYLES.occasionali.color },
   mountain_shelter: { emoji: '🏔️', color: CATEGORY_STYLES.occasionali.color },
   pizza: { emoji: '🍕', color: CATEGORY_STYLES.occasionali.color },
-  gelateria: { emoji: '🍦', color: CATEGORY_STYLES.occasionali.color }
+  gelateria: { emoji: '🍦', color: CATEGORY_STYLES.occasionali.color },
+  // amenity=bbq (2026-07-28 feedback: "aggiungi amenity=bbq fra i punti per
+  // pendolari") -- same outdoor-lunch-spot treatment as picnic areas (see
+  // OUTDOOR_LUNCH_SUB_TYPES in build_data.py).
+  bbq: { emoji: '🔥', color: CATEGORY_STYLES.occasionali.color }
 };
 
 // Renders a colored circular badge with an emoji glyph onto an offscreen canvas,
@@ -583,7 +587,8 @@ const SUB_TYPE_LABELS = {
   fire_station: 'Vigili del Fuoco',
   clinic: 'Ambulatorio Medico',
   doctors: 'Studio Medico',
-  nature_reserve: 'Riserva Naturale'
+  nature_reserve: 'Riserva Naturale',
+  bbq: 'Area Barbecue'
 };
 
 // Placeholder banner (data: URI, no network request) shown in the PoI popup

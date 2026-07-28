@@ -116,7 +116,14 @@ PUBLIC_INTEREST_SUB_TYPES = {
     'park', 'garden', 'square', 'community_centre', 'public_bookcase', 'drinking_water',
     'social_facility', 'association', 'ngo',
     'pitch', 'sports_centre', 'sports_hall', 'fitness_station', 'climbing', 'playground',
-    'picnic_site', 'nature_reserve', 'amphitheatre', 'museum', 'library'
+    'picnic_site', 'nature_reserve', 'amphitheatre', 'museum', 'library',
+    # amenity=bbq (2026-07-28 feedback: "aggiungi amenity=bbq fra i punti per
+    # pendolari") -- same outdoor-lunch-spot role as picnic_site, so it gets
+    # the exact same treatment: home category occasionali, cross-feeds every
+    # axis here, and its pendolari/comm_score contribution is additionally
+    # gated on the takeaway-food-within-5min-walk check below (see
+    # `OUTDOOR_LUNCH_SUB_TYPES` in calculate_scores_and_mixite).
+    'bbq'
 }
 
 # Icon names that represent a constructed sport facility (pitches, courts,
@@ -183,7 +190,7 @@ def fetch_osm_graph_and_pois(gdf_wgs84):
             'cafe', 'restaurant', 'pub', 'bar', 'canteen', 'fast_food', 'bank', 'atm',
             'public_bookcase', 'drinking_water', 'shelter', 'place_of_worship',
             'theatre', 'arts_centre', 'parking', 'recycling', 'marketplace',
-            'fire_station', 'clinic', 'doctors'
+            'fire_station', 'clinic', 'doctors', 'bbq'
         ],
         'shop': [
             'supermarket', 'bakery', 'convenience', 'butcher', 'greengrocer', 'chemist', 'books',
@@ -390,6 +397,7 @@ ICON_MAP = {
     ('amenity', 'fire_station'): 'fire_station',
     ('amenity', 'clinic'): 'clinic',
     ('amenity', 'doctors'): 'clinic',
+    ('amenity', 'bbq'): 'bbq',
 }
 
 
@@ -524,6 +532,7 @@ AMENITY_TYPE_LABELS_IT = {
     'clinic': 'Ambulatorio Medico',
     'doctors': 'Studio Medico',
     'nature_reserve': 'Riserva Naturale',
+    'bbq': 'Area Barbecue',
 }
 
 
@@ -800,7 +809,7 @@ def classify_and_transform_pois(raw_pois_utm, named_routes_buffer=None):
         #    rifugi/ripari escursionistici -- amenity=shelter con shelter_type di tipo
         #    outdoor, 2026-07-26 feedback)
         elif (historic != 'nan' or
-              amenity in ['cafe', 'restaurant', 'pub', 'bar', 'fast_food', 'theatre', 'arts_centre'] or
+              amenity in ['cafe', 'restaurant', 'pub', 'bar', 'fast_food', 'theatre', 'arts_centre', 'bbq'] or
               (amenity == 'shelter' and is_outdoor_shelter) or
               tourism != 'nan' or
               leisure in ['nature_reserve', 'amphitheatre'] or
@@ -1903,15 +1912,17 @@ def calculate_scores_and_mixite(gdf_hex_utm, G_utm, gdf_pois_utm, gtfs_stops):
     gdf_shared_for_res = gdf_shared[gdf_shared['category'] != 'residenti']
     gdf_shared_for_occa = gdf_shared[gdf_shared['category'] != 'occasionali']
 
-    # Picnic areas only make sense as a pendolari lunch-break draw if there's
-    # actually takeaway food nearby, within a ~5-minute walk (2026-07-25
-    # feedback) -- unlike every other PUBLIC_INTEREST_SUB_TYPES entry, a
-    # picnic site's contribution to comm_score specifically is gated on this
-    # proximity check (it still freely cross-feeds res_score, and occa_score
-    # is its own home axis, unaffected).
+    # Picnic areas (and, since 2026-07-28, amenity=bbq barbecue spots -- same
+    # outdoor-lunch-spot role) only make sense as a pendolari lunch-break draw
+    # if there's actually takeaway food nearby, within a ~5-minute walk
+    # (2026-07-25 feedback) -- unlike every other PUBLIC_INTEREST_SUB_TYPES
+    # entry, these two sub_types' contribution to comm_score specifically is
+    # gated on this proximity check (they still freely cross-feed res_score,
+    # and occa_score is their own home axis, unaffected).
+    OUTDOOR_LUNCH_SUB_TYPES = {'picnic_site', 'bbq'}
     WALK_5MIN_M = 400.0  # ~5 minutes at a standard ~80 m/min walking pace
     takeaway_pois = gdf_indic[gdf_indic['offre_asporto'] == True]  # noqa: E712
-    picnic_mask = gdf_shared['sub_type'] == 'picnic_site'
+    picnic_mask = gdf_shared['sub_type'].isin(OUTDOOR_LUNCH_SUB_TYPES)
     picnic_near_takeaway_ids = set()
     if picnic_mask.any() and len(takeaway_pois) > 0:
         G_undirected_food = G_utm.to_undirected()
@@ -1927,7 +1938,7 @@ def calculate_scores_and_mixite(gdf_hex_utm, G_utm, gdf_pois_utm, gtfs_stops):
         for poi_id, node in zip(picnic_pois.index, picnic_nodes):
             if dist_to_takeaway.get(node, math.inf) <= WALK_5MIN_M:
                 picnic_near_takeaway_ids.add(poi_id)
-    print(f"    Aree picnic vicine (<= {WALK_5MIN_M:.0f}m) a cibo d'asporto, rilevanti anche per pendolari: "
+    print(f"    Aree picnic/bbq vicine (<= {WALK_5MIN_M:.0f}m) a cibo d'asporto, rilevanti anche per pendolari: "
           f"{len(picnic_near_takeaway_ids)} / {picnic_mask.sum()}")
 
     picnic_eligible_for_comm = ~picnic_mask | gdf_shared.index.isin(picnic_near_takeaway_ids)
