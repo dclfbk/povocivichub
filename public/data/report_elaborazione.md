@@ -25,22 +25,22 @@ _Generato automaticamente da `python_pipeline/build_data.py`._
 ## 2b. Verifica Immagini
 
 - PoI con `image_url` verificati: **59**
-- Link non raggiungibili (ripuliti, il frontend mostra un placeholder): **5**
+- Link non raggiungibili (ripuliti, il frontend mostra un placeholder): **6**
 
 ## 3. Qualità del Dato
 
 - `orari_apertura` compilato: **51 / 348**
 - `contatti` compilato: **40 / 348**
-- `image_url` compilato: **54 / 348**
+- `image_url` compilato: **53 / 348**
 - `accessibilita_disabili` compilato: **41 / 348**
 
 ## 4. Indice di Classe Civica (ICC) medio per categoria
 
 | Categoria | W_cat | ICC medio | N. PoI |
 |---|---|---|---|
-| cross_civic | 1.0 | 73.2 | 63 |
+| cross_civic | 1.0 | 73.1 | 63 |
 | residenti | 0.8 | 63.6 | 102 |
-| occasionali | 0.6 | 40.9 | 120 |
+| occasionali | 0.6 | 40.8 | 120 |
 | pendolari | 0.4 | 48.5 | 63 |
 
 ## 5. Anomalie Rilevate
