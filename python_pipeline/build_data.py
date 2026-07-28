@@ -82,16 +82,16 @@ import requests
 from rapidfuzz import fuzz
 
 # Paths
-BOUNDARY_INPUT = "raw_data/povo_boundary.geojson"
-DTM_INPUT = "raw_data/dtm_povo.tif"
-GTFS_URBANO_INPUT = "raw_data/google_transit_urbano_tte.zip"
-GTFS_EXTRAURBANO_INPUT = "raw_data/google_transit_extraurbano_tte.zip"
-LOCAL_DATASET_INPUT = "raw_data/dati_circoscrizione.geojson"
+BOUNDARY_INPUT = "../raw_data/povo_boundary.geojson"
+DTM_INPUT = "../raw_data/dtm_povo.tif"
+GTFS_URBANO_INPUT = "../raw_data/google_transit_urbano_tte.zip"
+GTFS_EXTRAURBANO_INPUT = "../raw_data/google_transit_extraurbano_tte.zip"
+LOCAL_DATASET_INPUT = "../raw_data/dati_circoscrizione.geojson"
 
-GRID_OUTPUT = "public/data/povo_grid.json"
-BOUNDARY_OUTPUT = "public/data/povo_boundary.json"
-POIS_OUTPUT = "public/data/povo_pois.json"
-REPORT_OUTPUT = "public/data/report_elaborazione.md"
+GRID_OUTPUT = "../public/data/povo_grid.json"
+BOUNDARY_OUTPUT = "../public/data/povo_boundary.json"
+POIS_OUTPUT = "../public/data/povo_pois.json"
+REPORT_OUTPUT = "../public/data/report_elaborazione.md"
 
 TARGET_CRS = "EPSG:25832"  # UTM 32N (meters)
 WGS84_CRS = "EPSG:4326"
@@ -322,6 +322,27 @@ ICON_MAP = {
     ('sport', 'basketball'): 'basketball_court',
     ('sport', 'volleyball'): 'volleyball_court',
     ('sport', 'tennis'): 'tennis_court',
+    # Every other common `sport=*` value gets its own recognizable icon too
+    # (2026-07-28 feedback: "dammi l'icona corretta di ogni sport: chess =
+    # scacchi, tennis table = ping pong ecc.") instead of collapsing onto the
+    # generic ball-icon fallback in assign_icon_name. padel/beachvolleyball/
+    # futsal/fitness reuse the closest existing court/icon rather than adding
+    # a near-duplicate glyph.
+    ('sport', 'table_tennis'): 'table_tennis',
+    ('sport', 'chess'): 'chess',
+    ('sport', 'athletics'): 'athletics',
+    ('sport', 'skateboard'): 'skateboard',
+    ('sport', 'rugby'): 'rugby',
+    ('sport', 'baseball'): 'baseball',
+    ('sport', 'cricket'): 'cricket',
+    ('sport', 'hockey'): 'hockey',
+    ('sport', 'gymnastics'): 'gymnastics',
+    ('sport', 'american_football'): 'american_football',
+    ('sport', 'bocce'): 'bocce',
+    ('sport', 'boules'): 'bocce',
+    ('sport', 'padel'): 'tennis_court',
+    ('sport', 'beachvolleyball'): 'volleyball_court',
+    ('sport', 'fitness'): 'fitness_station',
     ('shop', 'copyshop'): 'copyshop',
     ('shop', 'supermarket'): 'supermarket',
     ('shop', 'bakery'): 'bakery',
@@ -620,10 +641,23 @@ def classify_and_transform_pois(raw_pois_utm, named_routes_buffer=None):
     n_signage_reference_only = 0
     n_parking_reference_only = 0
     n_recycling_dropped = 0
+    n_private_access_dropped = 0
     for idx, row in gdf_pts_utm.iterrows():
         pt_utm = row.geometry
         pt_wgs84 = gdf_pts_wgs84.loc[idx].geometry
         if pt_utm is None or pt_utm.is_empty:
+            continue
+
+        # Anything explicitly tagged access=private is dropped entirely --
+        # not shown, not calculated (2026-07-28 feedback: "dove un oggetto ha
+        # il tag access=private non devi considerarlo"). This is stricter than
+        # `accesso_pubblico`/RESTRICTED_ACCESS_VALUES below (which also treats
+        # access=no/customers as non-public but still keeps those PoIs visible
+        # on the map/table, just excluded from indicator scoring) and applies
+        # to every fetched tag/category alike -- including amenity=parking,
+        # which used to always stay in the dataset regardless of access.
+        if str(row.get('access', '')).strip().lower() == 'private':
+            n_private_access_dropped += 1
             continue
 
         amenity = str(row.get('amenity', ''))
@@ -644,6 +678,16 @@ def classify_and_transform_pois(raw_pois_utm, named_routes_buffer=None):
         recycling_type = str(row.get('recycling_type', '')).lower()
         cuisine = str(row.get('cuisine', '')).lower()
         accesso_pubblico = compute_accesso_pubblico(row.get('access', ''))
+        # OSM's own `website` (falling back to `contact:website`) straight into
+        # the info-card field -- previously left blank for every OSM-sourced
+        # PoI and only ever filled later by the Wikidata enrichment step
+        # (2026-07-28 feedback: "sei nei tag trovi website aggiungilo nella
+        # scheda informativa" -- e.g. CNR-IFN Trento / HIT carry it directly).
+        website = str(row.get('website', ''))
+        if website == 'nan' or not website:
+            website = str(row.get('contact:website', ''))
+        if website == 'nan':
+            website = ''
 
         name = str(row.get('name', ''))
         if name == 'nan':
@@ -785,13 +829,38 @@ def classify_and_transform_pois(raw_pois_utm, named_routes_buffer=None):
                        (f'shop={shop}' if shop != 'nan' else
                         (f'leisure={leisure}' if leisure != 'nan' else f'sport={sport}')))
 
+        # "Campo da <sport>" instead of the raw OSM word "pitch" (2026-07-25
+        # feedback). An indoor climbing wall (leisure=sports_centre +
+        # sport=climbing) reads as "Parete d'Arrampicata" rather than the
+        # generic AMENITY_TYPE_LABELS_IT['climbing'] "Falesia d'Arrampicata"
+        # (a falesia is specifically an outdoor natural crag, 2026-07-28
+        # feedback: "per il discorso di amenity=climb traduci come parete
+        # d'arrampicata"). Computed here (before the name fallback below) so
+        # it can also serve as the fallback display name for an unnamed PoI.
+        amenity_type = (
+            "Parete d'Arrampicata" if sub_type == 'climbing' and leisure == 'sports_centre' else
+            (format_pitch_label(sport) if sub_type == 'pitch' else
+             (ACCOMMODATION_LABEL_IT if sub_type in ACCOMMODATION_SUB_TYPES else
+              format_amenity_type(sub_type)))
+        )
+
         # Always surface a name -- an anonymous OSM node/way shouldn't reach
-        # the UI as a nameless "Punto di interesse": fall back to its own
-        # OSM tag (e.g. "amenity=shelter") so it's at least identifiable
-        # (2026-07-26 feedback: "dai dati OSM recupera sempre il nome, se non
-        # lo hai metti il tag osm").
+        # the UI as a nameless "Punto di interesse": fall back to its translated
+        # service type (2026-07-28 feedback: "non usare il tag come nome, ma
+        # prendi la chiave principale e traduci il valore in italiano" --
+        # supersedes the previous raw "amenity=shelter"-style fallback). An
+        # unnamed amenity=shelter is ambiguous on its own (AMENITY_TYPE_LABELS_IT
+        # just says "Rifugio / Pensilina"), so it's disambiguated using the same
+        # bus-stop-proximity check already used for its category/icon above
+        # (2026-07-28 feedback: "attenzione fra pensiline dell'autobus e
+        # bivacchi -- basta che controlli se e' una fermata dell'autobus").
         if not name:
-            name = osm_tag
+            if amenity == 'shelter' and is_bus_shelter:
+                name = 'Pensilina Autobus'
+            elif amenity == 'shelter' and is_outdoor_shelter:
+                name = 'Bivacco'
+            else:
+                name = amenity_type or osm_tag
 
         icon_name = assign_icon_name(historic, amenity, tourism, leisure, highway, railway,
                                       sport, office, shop, public_transport, place)
@@ -814,11 +883,6 @@ def classify_and_transform_pois(raw_pois_utm, named_routes_buffer=None):
         # PoI types that need a distinguishable icon).
         if amenity in ('restaurant', 'fast_food') and 'pizza' in cuisine:
             icon_name = 'pizza'
-
-        # "Campo da <sport>" instead of the raw OSM word "pitch" (2026-07-25 feedback).
-        amenity_type = (format_pitch_label(sport) if sub_type == 'pitch' else
-                         (ACCOMMODATION_LABEL_IT if sub_type in ACCOMMODATION_SUB_TYPES else
-                          format_amenity_type(sub_type)))
 
         # Does this PoI hand out ready-to-eat/takeaway food? Used only to gate
         # picnic areas' relevance to pendolari lunch breaks (2026-07-25
@@ -852,7 +916,7 @@ def classify_and_transform_pois(raw_pois_utm, named_routes_buffer=None):
             'indirizzo': '',
             'orari_apertura': normalize_opening_hours(opening_hours),
             'contatti': '',
-            'sito_web': '',
+            'sito_web': website,
             'accessibilita_disabili': '',
             'source': 'osm',
             'wikidata_id': wikidata if wikidata != 'nan' else '',
@@ -874,6 +938,7 @@ def classify_and_transform_pois(raw_pois_utm, named_routes_buffer=None):
     gdf_pois_wgs84 = gpd.GeoDataFrame(poi_records_wgs84, crs=WGS84_CRS)
 
     counts = gdf_pois_utm['category'].value_counts().to_dict()
+    print(f"    Features dropped entirely for access=private: {n_private_access_dropped}")
     print(f"    Individual recycling bins/containers dropped (kept only recycling_type=centre): {n_recycling_dropped}")
     print(f"    Trail signage (tourism=information) kept as reference-only, not on a named route: {n_signage_reference_only}")
     print(f"    Parking features kept as reference-only (also feed the distance-to-parking indicator): {n_parking_reference_only}")
@@ -1284,6 +1349,43 @@ def build_manual_pois():
     gdf_wgs84 = gpd.GeoDataFrame(records_wgs84, crs=WGS84_CRS)
     gdf_utm = gdf_wgs84.to_crs(TARGET_CRS)
     print(f"    Manual POIs injected: {len(gdf_wgs84)}")
+    return gdf_utm, gdf_wgs84
+
+
+# Field patches for specific, already-existing OSM features that are missing
+# one piece of data OSM itself doesn't carry (2026-07-28 feedback: "trovi
+# anche la foto" for Teatro Concordia) -- keyed by `osm_id` ('<element>/<id>',
+# same identity format `classify_and_transform_pois` assigns), unlike
+# MANUAL_POIS (used for territory with NO OSM presence at all, which would
+# duplicate this node on the map if used here instead).
+OSM_FIELD_OVERRIDES = {
+    # Teatro Concordia / "Teatro parrocchiale Concordia" (amenity=theatre,
+    # already carries its own `website` tag, picked up automatically -- see
+    # the `website` extraction in classify_and_transform_pois). OSM has no
+    # image tag for it; this is the photo from the same comune.trento.it page
+    # the website links to.
+    'node/1999372436': {
+        'image_url': (
+            'https://spazicomuni.comune.trento.it/var/comunetn/storage/images/comune/'
+            'organi-politici/circoscrizioni/circoscrizione-n.-07-povo/sale-della-circoscrizione/'
+            'teatro-parrocchiale-concordia/5902639-9-ita-IT/Teatro-parrocchiale-Concordia_imagefull.jpg'
+        )
+    }
+}
+
+
+def apply_osm_field_overrides(gdf_utm, gdf_wgs84):
+    """Patch specific fields (see OSM_FIELD_OVERRIDES) onto matching osm_id rows."""
+    n_patched = 0
+    for osm_id, fields in OSM_FIELD_OVERRIDES.items():
+        mask = gdf_utm['osm_id'] == osm_id
+        if not mask.any():
+            continue
+        for col, value in fields.items():
+            gdf_utm.loc[mask, col] = value
+            gdf_wgs84.loc[mask, col] = value
+        n_patched += 1
+    print(f"--> Applied hand-curated field overrides to {n_patched}/{len(OSM_FIELD_OVERRIDES)} known OSM features.")
     return gdf_utm, gdf_wgs84
 
 
@@ -2086,6 +2188,7 @@ def main():
     G_utm, raw_pois_utm = fetch_osm_graph_and_pois(gdf_wgs84)
     named_routes_buffer = fetch_named_hiking_routes(gdf_wgs84)
     gdf_osm_utm, gdf_osm_wgs84 = classify_and_transform_pois(raw_pois_utm, named_routes_buffer)
+    gdf_osm_utm, gdf_osm_wgs84 = apply_osm_field_overrides(gdf_osm_utm, gdf_osm_wgs84)
 
     gdf_local_utm, gdf_local_wgs84, local_stats = load_local_dataset(LOCAL_DATASET_INPUT)
 

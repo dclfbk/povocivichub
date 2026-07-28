@@ -4,7 +4,7 @@ import Sidebar from './components/Sidebar';
 import AboutModal from './components/AboutModal';
 import CategoryTablesModal from './components/CategoryTablesModal';
 import CookieConsent from './components/CookieConsent';
-import { Menu, X, Layers } from 'lucide-react';
+import { Menu } from 'lucide-react';
 import { parseUrlState, buildUrlSearch } from './utils/urlState';
 import { DEFAULT_HEATMAP_RADIUS, aggregateHexScoresInBounds } from './config/mapConfig';
 
@@ -186,20 +186,27 @@ export default function App() {
 
   return (
     <div className="relative w-screen h-screen overflow-hidden flex flex-col md:flex-row bg-slate-950">
-      {/* Mobile Toggle Button */}
-      <button
-        onClick={() => setIsSidebarOpen(!isSidebarOpen)}
-        className="md:hidden absolute top-4 left-4 z-30 p-3 bg-slate-900/90 text-white rounded-xl border border-slate-700 shadow-xl backdrop-blur-md"
-        aria-label="Toggle Sidebar"
-      >
-        {isSidebarOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
-      </button>
+      {/* Sidebar Toggle Button -- only floats over the map once the sidebar
+          is closed (2026-07-28 feedback: sidebar should be collapsible on
+          every screen size, not just mobile). Closing itself happens via the
+          dedicated button in Sidebar's own header instead, so this one never
+          has to overlap the open panel. */}
+      {!isSidebarOpen && (
+        <button
+          onClick={() => setIsSidebarOpen(true)}
+          className="absolute top-4 left-4 z-30 p-3 bg-slate-900/90 text-white rounded-xl border border-slate-700 shadow-xl backdrop-blur-md"
+          aria-label="Apri la barra laterale"
+        >
+          <Menu className="w-5 h-5" />
+        </button>
+      )}
 
       {/* Sidebar Panel */}
-      <div className={`${isSidebarOpen ? 'flex' : 'hidden'} md:flex h-full shrink-0 z-20`}>
+      <div className={`${isSidebarOpen ? 'flex' : 'hidden'} h-full shrink-0 z-20`}>
         <Sidebar
           selectedHex={selectedHex}
           onResetSelection={() => setSelectedHex(null)}
+          onCloseSidebar={() => setIsSidebarOpen(false)}
           showGrid={showGrid}
           onToggleGrid={setShowGrid}
           poiViewMode={poiViewMode}
@@ -252,14 +259,6 @@ export default function App() {
           onViewStateChange={setViewState}
           onViewportBoundsChange={setViewportBounds}
         />
-
-        {/* Floating Top Badge Info */}
-        <div className="hidden lg:flex absolute top-4 right-16 z-10 glass-card px-4 py-2 rounded-xl border border-slate-700/60 shadow-lg text-xs font-semibold items-center gap-2 text-slate-200 pointer-events-none">
-          <Layers className="w-4 h-4 text-indigo-400" />
-          <span>
-            {showTerrain ? 'MapLibre 3D Terrain' : 'MapLibre 2D'} &bull; Uber H3 Res 10 &bull; Tobler Hiking Model
-          </span>
-        </div>
 
         {/* Draw-mode hint overlay */}
         {drawMode && (

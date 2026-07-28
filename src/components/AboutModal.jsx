@@ -50,12 +50,14 @@ const PLACES = [
   {
     icon: GraduationCap,
     color: 'blue',
-    title: 'Poli Universitari & Ricerca (Povo 1 & 2, FBK, UniTrento)',
+    title: 'Poli Universitari & Ricerca (Povo 1 & 2, FBK, UniTrento, CNR, HIT)',
     // 2026-07-26 feedback: FBK e UniTrento non sono "luoghi pubblici" in
     // senso stretto -- contano soprattutto come attrattori di pendolari
     // (studenti, ricercatori) verso Povo, quindi il testo li lega
-    // esplicitamente alla categoria Pendolari usata nell'analisi.
-    text: "Hub scientifico e universitario di eccellenza che attira ogni giorno un forte flusso di studenti, ricercatori e lavoratori: sono tra i principali motori della categoria \"Pendolari\" nell'analisi, più che semplici luoghi pubblici."
+    // esplicitamente alla categoria Pendolari usata nell'analisi. CNR-IFN
+    // Trento e HIT (Hub Innovazione Trentino) aggiunti 2026-07-28: stesso
+    // office=research di FBK/UniTrento su OSM, stesso ruolo di attrattori.
+    text: "Hub scientifico e universitario di eccellenza -- comprende anche il CNR-IFN e l'Hub Innovazione Trentino (HIT) -- che attira ogni giorno un forte flusso di studenti, ricercatori e lavoratori: sono tra i principali motori della categoria \"Pendolari\" nell'analisi, più che semplici luoghi pubblici."
   },
   {
     icon: Bus,

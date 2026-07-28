@@ -12,23 +12,19 @@ export const CATEGORY_STYLES = {
 
 export const ALL_POI_CATEGORIES = Object.keys(CATEGORY_STYLES);
 
-// Selectable background maps. The first 5 are complete OpenFreeMap vector
-// styles (fetched as a style.json URL); 'street-it'/'hiking-it'/'cycling-it'
-// are MapToolkit's Italian-localized vector styles, added 2026-07-26 --
+// Selectable background maps (2026-07-28 feedback: reduced down to just
+// MapToolkit's Italian-localized vector styles plus the Trento aerial
+// orthophoto -- the OpenFreeMap styles previously offered here were dropped).
 // 'hiking-it' is the default (it surfaces trail/outdoor detail relevant to
 // this project's outdoor-sport focus, see [[project_outdoor_sport_focus]]
 // in project memory); 'aerial' is a single raster XYZ layer (2019 Trento
 // orthophoto), not a full style, so Map.jsx builds a minimal raster-only
 // style object for it instead of passing the tile URL straight to setStyle.
+// Labels deliberately drop the "(IT)" suffix (2026-07-28 feedback).
 export const MAP_STYLES = {
-  liberty: { label: 'Liberty', url: 'https://tiles.openfreemap.org/styles/liberty' },
-  positron: { label: 'Positron', url: 'https://tiles.openfreemap.org/styles/positron' },
-  bright: { label: 'Bright', url: 'https://tiles.openfreemap.org/styles/bright' },
-  dark: { label: 'Dark', url: 'https://tiles.openfreemap.org/styles/dark' },
-  fiord: { label: 'Fiord', url: 'https://tiles.openfreemap.org/styles/fiord' },
-  'street-it': { label: 'Stradale (IT)', url: 'https://styles.maptoolkit.org/street-it.json' },
-  'hiking-it': { label: 'Escursionismo (IT)', url: 'https://styles.maptoolkit.org/hiking-it.json' },
-  'cycling-it': { label: 'Cicloturismo (IT)', url: 'https://styles.maptoolkit.org/cycling-it.json' },
+  'street-it': { label: 'Stradale', url: 'https://styles.maptoolkit.org/street-it.json' },
+  'hiking-it': { label: 'Escursionismo', url: 'https://styles.maptoolkit.org/hiking-it.json' },
+  'cycling-it': { label: 'Cicloturismo', url: 'https://styles.maptoolkit.org/cycling-it.json' },
   aerial: {
     label: 'Ortofotocarta Trento 2019',
     // The given tiles.openaerialmap.org URL 302-redirects to this exact
@@ -401,6 +397,20 @@ export const ICON_VISUALS = {
   basketball_court: { emoji: '🏀', color: CATEGORY_STYLES.residenti.color },
   volleyball_court: { emoji: '🏐', color: CATEGORY_STYLES.residenti.color },
   tennis_court: { emoji: '🎾', color: CATEGORY_STYLES.residenti.color },
+  // One icon per common `sport=*` value (2026-07-28 feedback: "dammi
+  // l'icona corretta di ogni sport: chess = scacchi, tennis table = ping
+  // pong ecc."), mirroring ICON_MAP's additions in build_data.py.
+  table_tennis: { emoji: '🏓', color: CATEGORY_STYLES.residenti.color },
+  chess: { emoji: '♟️', color: CATEGORY_STYLES.residenti.color },
+  athletics: { emoji: '🏃', color: CATEGORY_STYLES.residenti.color },
+  skateboard: { emoji: '🛹', color: CATEGORY_STYLES.residenti.color },
+  rugby: { emoji: '🏉', color: CATEGORY_STYLES.residenti.color },
+  baseball: { emoji: '⚾', color: CATEGORY_STYLES.residenti.color },
+  cricket: { emoji: '🏏', color: CATEGORY_STYLES.residenti.color },
+  hockey: { emoji: '🏒', color: CATEGORY_STYLES.residenti.color },
+  gymnastics: { emoji: '🤸', color: CATEGORY_STYLES.residenti.color },
+  american_football: { emoji: '🏈', color: CATEGORY_STYLES.residenti.color },
+  bocce: { emoji: '🎳', color: CATEGORY_STYLES.residenti.color },
   park: { emoji: '🌳', color: CATEGORY_STYLES.cross_civic.color },
   drinking_water: { emoji: '🚰', color: CATEGORY_STYLES.cross_civic.color },
   bench: { emoji: '🪑', color: CATEGORY_STYLES.cross_civic.color },

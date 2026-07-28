@@ -16,7 +16,8 @@ import {
   List,
   PenTool,
   XCircle,
-  Map as MapIcon
+  Map as MapIcon,
+  PanelLeftClose
 } from 'lucide-react';
 import {
   CATEGORY_STYLES,
@@ -45,6 +46,7 @@ const POI_VIEW_MODES = [
 export default function Sidebar({
   selectedHex,
   onResetSelection,
+  onCloseSidebar,
   showGrid,
   onToggleGrid,
   poiViewMode,
@@ -111,7 +113,7 @@ export default function Sidebar({
   const mixLevel = getMixLevel(mixIndex);
 
   return (
-    <aside className="w-full md:w-[420px] h-full glass-panel flex flex-col z-20 overflow-y-auto border-r border-slate-800 text-slate-100 shadow-2xl">
+    <aside className="w-full md:w-[320px] h-full glass-panel flex flex-col z-20 overflow-y-auto border-r border-slate-800 text-slate-100 shadow-2xl">
       {/* App Header */}
       <header className="p-6 border-b border-slate-800/80 bg-slate-900/60 flex flex-col gap-2">
         <div className="flex items-center justify-between">
@@ -152,6 +154,14 @@ export default function Sidebar({
                 <RotateCcw className="w-4 h-4" />
               </button>
             )}
+            <button
+              onClick={onCloseSidebar}
+              className="p-2 hover:bg-slate-800 rounded-lg text-slate-400 hover:text-white transition"
+              title="Nascondi barra laterale"
+              aria-label="Nascondi barra laterale"
+            >
+              <PanelLeftClose className="w-4 h-4" />
+            </button>
           </div>
         </div>
       </header>

@@ -17,6 +17,10 @@ import {
 
 const EMPTY_FC = { type: 'FeatureCollection', features: [] };
 const ZOOM_OUT_LEVELS_BEYOND_BOUNDARY = 2;
+// Fixed panning limit (2026-07-28 feedback: use these exact corners instead
+// of a boundary-relative padded box) -- [southwest, northeast] as required by
+// maplibregl.LngLatBoundsLike.
+const MAX_BOUNDS = [[10.993710, 45.987540], [11.336002, 46.107755]];
 
 const UNCLUSTERED_FILTER_BASE = ['!', ['has', 'point_count']];
 
@@ -350,10 +354,12 @@ export default function Map({
       if (cancelled) return;
       addCustomLayers(map);
 
+      // Panning limit: fixed to the given lat/lon corners rather than a
+      // boundary-relative padded box (2026-07-28 feedback).
+      map.setMaxBounds(MAX_BOUNDS);
+
       // Zoomed-out limit: 2 zoom levels beyond whatever level exactly fits
-      // the full Povo boundary on screen. Also caps panning (maxBounds) to a
-      // generously padded version of the same boundary, so the boundary can
-      // never be scrolled/panned entirely out of view (2026-07-25 feedback).
+      // the full Povo boundary on screen.
       fetch('./data/povo_boundary.json')
         .then((res) => res.json())
         .then((boundaryGeoJSON) => {
@@ -363,25 +369,8 @@ export default function Map({
           if (cam && typeof cam.zoom === 'number') {
             map.setMinZoom(Math.max(0, cam.zoom - ZOOM_OUT_LEVELS_BEYOND_BOUNDARY));
           }
-
-          // Pad the boundary bbox by a modest 20% of its own width/height on
-          // every side -- enough for comfortable panning around the edges.
-          // NOTE: maxBounds constrains where the *camera* can go, not whether
-          // the boundary polygon itself stays on screen -- at high zoom the
-          // viewport covers far less ground than the padded bounds, so a
-          // large pad (an earlier 100%-per-side version) let the map wander
-          // to unrelated neighbourhoods (confirmed while testing: panning
-          // repeatedly reached Gardolo/Meano, several km from Povo). Keeping
-          // the pad small is what actually keeps the boundary "always
-          // visible" in practice.
-          const lngPad = (maxLng - minLng) * 0.2 || 0.005;
-          const latPad = (maxLat - minLat) * 0.2 || 0.005;
-          map.setMaxBounds([
-            [minLng - lngPad, minLat - latPad],
-            [maxLng + lngPad, maxLat + latPad]
-          ]);
         })
-        .catch((err) => console.error('Failed to compute boundary min-zoom/max-bounds', err));
+        .catch((err) => console.error('Failed to compute boundary min-zoom', err));
 
       // Hover interaction on hexagons.
       let hoveredFeatureId = null;

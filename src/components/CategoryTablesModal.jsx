@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { X, List, ChevronLeft, ChevronRight, ChevronUp, ChevronDown, ChevronsUpDown, MapPin, Globe, Lock } from 'lucide-react';
+import { X, List, ChevronLeft, ChevronRight, ChevronUp, ChevronDown, ChevronsUpDown, MapPin, Globe, Lock, Download } from 'lucide-react';
 import { ALL_POI_CATEGORIES, CATEGORY_STYLES } from '../config/mapConfig';
 
 const PAGE_SIZE = 20;
@@ -136,6 +136,43 @@ export default function CategoryTablesModal({ isOpen, onClose, poisData, onSelec
   };
 
   const setColumnFilter = (key, value) => setColumnFilters((prev) => ({ ...prev, [key]: value }));
+
+  // Exports every row matching the current column filters (not just the
+  // current page) as CSV -- 2026-07-28 feedback: "permetti il download del
+  // file in formato csv anche in relazione al filtro scelto".
+  const toCsvCell = (value) => {
+    const s = value === null || value === undefined ? '' : String(value);
+    return /[",\n;]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+  };
+
+  const handleDownloadCsv = () => {
+    const rowValue = (row, col) => {
+      if (col.key === 'category') return (CATEGORY_STYLES[row.category] || {}).label || row.category || '';
+      if (col.key === 'categoria_secondaria') {
+        return (row.categoria_secondaria || '').split(',').filter(Boolean)
+          .map((cat) => (CATEGORY_STYLES[cat] || {}).label || cat).join('; ');
+      }
+      if (col.key === 'accesso_pubblico') return row.accesso_pubblico !== false ? 'Pubblico' : 'Riservato';
+      if (col.key === 'icc_score') return typeof row.icc_score === 'number' ? row.icc_score.toFixed(1) : '';
+      return row[col.key] || '';
+    };
+
+    const lines = [
+      COLUMNS.map((col) => toCsvCell(col.label)).join(','),
+      ...sortedRows.map((row) => COLUMNS.map((col) => toCsvCell(rowValue(row, col))).join(','))
+    ];
+    // Leading BOM so Excel opens the UTF-8 file with accented Italian
+    // characters intact instead of mis-decoding them.
+    const blob = new Blob(['﻿' + lines.join('\r\n')], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `povo-civic-hub-poi-${new Date().toISOString().slice(0, 10)}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
 
   if (!isOpen) return null;
 
@@ -352,9 +389,19 @@ export default function CategoryTablesModal({ isOpen, onClose, poisData, onSelec
 
         {/* Pagination */}
         <div className="flex items-center justify-between gap-3 p-4 border-t border-slate-800/60 shrink-0 bg-slate-900/40 text-xs">
-          <span className="text-slate-400">
-            {sortedRows.length} PoI &bull; pagina {currentPage} di {totalPages}
-          </span>
+          <div className="flex items-center gap-3">
+            <span className="text-slate-400">
+              {sortedRows.length} PoI &bull; pagina {currentPage} di {totalPages}
+            </span>
+            <button
+              onClick={handleDownloadCsv}
+              disabled={sortedRows.length === 0}
+              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-indigo-500/40 bg-indigo-500/20 text-indigo-300 font-semibold hover:bg-indigo-500/30 transition disabled:opacity-30 disabled:cursor-not-allowed"
+              title="Scarica in CSV i PoI corrispondenti ai filtri attivi"
+            >
+              <Download className="w-3.5 h-3.5" /> Scarica CSV
+            </button>
+          </div>
           <div className="flex items-center gap-1.5">
             <button
               onClick={() => setPage((p) => Math.max(1, p - 1))}
