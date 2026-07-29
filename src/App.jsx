@@ -201,8 +201,12 @@ export default function App() {
         </button>
       )}
 
-      {/* Sidebar Panel */}
-      <div className={`${isSidebarOpen ? 'flex' : 'hidden'} h-full shrink-0 z-20`}>
+      {/* Sidebar Panel -- fixed/overlay on mobile so it never squeezes the
+          map's flex-col sibling down to zero height (2026-07-29 bug: sidebar
+          defaults open, and h-full on both stacked flex-col children left the
+          map with no space, so it never rendered on phones). On md+ it goes
+          back to a normal flex item next to the map. */}
+      <div className={`${isSidebarOpen ? 'flex' : 'hidden'} fixed md:static inset-0 h-full w-full md:w-auto shrink-0 z-30 md:z-20`}>
         <Sidebar
           selectedHex={selectedHex}
           onResetSelection={() => setSelectedHex(null)}

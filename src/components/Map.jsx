@@ -335,6 +335,15 @@ export default function Map({
 
     mapRef.current = map;
 
+    // MapLibre sizes its canvas once from the container's dimensions at
+    // construction time and never re-measures on its own. Without this, a
+    // container that starts at zero size (e.g. squeezed out by a sibling
+    // during a layout bug) or later gets resized (sidebar toggle, phone
+    // rotation, mobile browser chrome show/hide) leaves the map blank or
+    // mis-sized until a manual resize() call.
+    const resizeObserver = new ResizeObserver(() => map.resize());
+    resizeObserver.observe(mapContainerRef.current);
+
     // visualizePitch:false keeps the compass button scoped to bearing only --
     // clicking it calls resetNorth() (not resetNorthPitch()), so it can't
     // fight with the separate "Vista 3D" pitch toggle.
@@ -504,6 +513,7 @@ export default function Map({
 
     return () => {
       cancelled = true;
+      resizeObserver.disconnect();
       map.remove();
       mapRef.current = null;
     };
