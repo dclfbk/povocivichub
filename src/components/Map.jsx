@@ -9,7 +9,8 @@ import {
   createPoiIconImage,
   computePoiStatsInPolygon,
   aggregateHexScoresInPolygon,
-  buildMapStyleDefinition,
+  EMPTY_MAP_STYLE,
+  loadMapStyleDefinition,
   computeBboxFromGeoJSON,
   buildPoiPopupHtml,
   buildHeatmapRadiusExpression
@@ -75,7 +76,21 @@ export default function Map({
   // in the sidebar (Sidebar effects below all bail out on `!loaded`).
   // Comparing against the actual last-applied value is idempotent no matter
   // how many times the effect body re-runs for the same mapStyle.
-  const appliedMapStyleRef = useRef(mapStyle);
+  //
+  // Starts at `null` (not `mapStyle`) so the basemap-switch effect also
+  // fires on initial mount -- 2026-08-02: the mount effect now constructs
+  // the map with EMPTY_MAP_STYLE (a trivial local placeholder) instead of
+  // handing MapLibre the raw MapToolkit URL directly, since MapToolkit's
+  // style JSON currently ships an invalid paint property that breaks style
+  // loading. The switch effect is what actually fetches+sanitizes the real
+  // style and applies it via setStyle(), for both the first load and every
+  // later switch -- it only marks appliedMapStyleRef *after* that setStyle()
+  // call actually happens (inside the async .then, not eagerly), which is
+  // what keeps this safe under the same StrictMode double-invoke this
+  // comment already describes: the effect instance that gets torn down
+  // mid-fetch never gets to stamp the ref, so the surviving instance's own
+  // run still sees `null` and proceeds instead of wrongly skipping.
+  const appliedMapStyleRef = useRef(null);
   const didInitTerrainRef = useRef(false);
   const onViewStateChangeRef = useRef(onViewStateChange);
   useEffect(() => {
@@ -324,7 +339,10 @@ export default function Map({
     const ivs = initialViewState || {};
     const map = new maplibregl.Map({
       container: mapContainerRef.current,
-      style: buildMapStyleDefinition(mapStyle),
+      // Real basemap is applied moments later by the basemap-switch effect
+      // below (loadMapStyleDefinition fetches+sanitizes it first) -- see
+      // appliedMapStyleRef's comment for why.
+      style: EMPTY_MAP_STYLE,
       center: [ivs.lon ?? 11.155, ivs.lat ?? 46.066], // Povo, Trento
       zoom: ivs.zoom ?? 14,
       pitch: ivs.pitch ?? 0,
@@ -519,10 +537,13 @@ export default function Map({
     };
   }, []);
 
-  // Basemap style switch: setStyle() wipes all custom sources/layers, so they
-  // (and the current prop-driven visual state) are re-applied once the new
-  // style finishes loading. Skips the very first run (mount already set the
-  // initial style via the constructor above).
+  // Basemap style load/switch: setStyle() wipes all custom sources/layers, so
+  // they (and the current prop-driven visual state) are re-applied once the
+  // new style finishes loading. Also runs on the very first mount now (see
+  // appliedMapStyleRef's comment) -- the mount effect only ever constructs
+  // the map with the trivial EMPTY_MAP_STYLE placeholder, so this effect is
+  // what fetches+sanitizes and applies the real basemap, both initially and
+  // on every later switch.
   //
   // { diff: false } is required here: MapLibre's default setStyle() diffs the
   // *current* style (which includes our injected hex/POI/heatmap/draw layers)
@@ -538,15 +559,35 @@ export default function Map({
   // comments below already assumed was happening.
   useEffect(() => {
     if (appliedMapStyleRef.current === mapStyle) return;
-    appliedMapStyleRef.current = mapStyle;
-    const map = mapRef.current;
-    if (!map) return;
 
-    map.setStyle(buildMapStyleDefinition(mapStyle), { diff: false });
-    map.once('style.load', () => {
-      addCustomLayers(map);
-      applyCurrentState(map);
+    // Own cancellation guard (not the mount effect's `cancelled`, which
+    // belongs to a different effect and closes over a different map
+    // instance): loadMapStyleDefinition is async, so under React.StrictMode's
+    // dev-only double-invoke this effect instance can be torn down before
+    // its fetch resolves. Without this guard the stale fetch would later
+    // call setStyle() on a map already removed by the mount effect's own
+    // cleanup. Deliberately does NOT stamp appliedMapStyleRef until inside
+    // the .then() below -- stamping it eagerly here would make the
+    // surviving StrictMode instance's own run see "already applied" and
+    // wrongly skip loading any style at all.
+    let cancelled = false;
+
+    loadMapStyleDefinition(mapStyle).then((styleDef) => {
+      if (cancelled) return;
+      const map = mapRef.current;
+      if (!map) return;
+
+      appliedMapStyleRef.current = mapStyle;
+      map.setStyle(styleDef, { diff: false });
+      map.once('style.load', () => {
+        addCustomLayers(map);
+        applyCurrentState(map);
+      });
     });
+
+    return () => {
+      cancelled = true;
+    };
   }, [mapStyle]);
 
   // React to layer-visibility / styling prop changes after the map has loaded.

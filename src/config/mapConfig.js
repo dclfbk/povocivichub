@@ -73,6 +73,52 @@ export function buildMapStyleDefinition(styleKey) {
   };
 }
 
+// Trivial placeholder passed straight to `new maplibregl.Map({ style })` at
+// construction time (2026-08-02: map went blank / WebGL context lost,
+// coinciding with MapToolkit's remote style JSON carrying an invalid
+// `line-layer-opacity` paint property on many layers -- confirmed by
+// fetching hiking.json/street.json/cycling.json directly, present on *every*
+// MapToolkit variant, not just the "-it" ones). Constructing with this empty
+// style instead of the raw MapToolkit URL means MapLibre never touches the
+// unsanitized remote JSON directly; Map.jsx's basemap-switch effect (which
+// now also runs on initial mount, see appliedMapStyleRef) swaps in the real,
+// sanitized style moments later via loadMapStyleDefinition() below.
+export const EMPTY_MAP_STYLE = { version: 8, sources: {}, layers: [] };
+
+// MapLibre style-spec paint property names that MapToolkit's generator has
+// been observed emitting despite them not being real properties (the real
+// one is `line-opacity`). Style validation errors for these fail loudly
+// enough to break the whole style load, not just that one declaration.
+const INVALID_PAINT_PROPS = ['line-layer-opacity'];
+
+function stripInvalidPaintProps(style) {
+  for (const layer of style.layers || []) {
+    if (!layer.paint) continue;
+    for (const prop of INVALID_PAINT_PROPS) {
+      delete layer.paint[prop];
+    }
+  }
+  return style;
+}
+
+// Fetches + sanitizes a MapToolkit style ourselves instead of handing
+// MapLibre the raw URL (which fetches it internally, with no chance to fix
+// it up first). Falls back to the raw URL on any fetch/parse failure, so a
+// network hiccup here degrades to exactly the old (pre-sanitization)
+// behavior rather than something worse.
+export async function loadMapStyleDefinition(styleKey) {
+  const cfg = MAP_STYLES[styleKey] || MAP_STYLES[DEFAULT_MAP_STYLE];
+  if (!cfg.url) return buildMapStyleDefinition(styleKey);
+  try {
+    const res = await fetch(cfg.url);
+    const style = await res.json();
+    return stripInvalidPaintProps(style);
+  } catch (err) {
+    console.error('Failed to fetch/sanitize map style, falling back to raw URL:', cfg.url, err);
+    return cfg.url;
+  }
+}
+
 // Flattens every coordinate out of a GeoJSON geometry/feature/FeatureCollection
 // into a [minLng, minLat, maxLng, maxLat] bbox. Used to compute the "fit the
 // whole Povo boundary" zoom level so the map's zoomed-out limit can be set

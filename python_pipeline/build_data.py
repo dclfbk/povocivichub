@@ -519,7 +519,7 @@ AMENITY_TYPE_LABELS_IT = {
     'community_centre': 'Centro Civico',
     'drinking_water': 'Fontanella',
     'bench': 'Panchina',
-    'shelter': 'Rifugio / Pensilina',
+    'shelter': 'Riparo',
     'townhall': 'Municipio',
     'social_facility': 'Servizio Sociale',
     'place_of_worship': 'Luogo di Culto',
@@ -639,8 +639,14 @@ def normalize_opening_hours(raw):
 # e.g. a publicly-accessible football pitch is useful to every community, not
 # just the one its category happens to bucket it into). Anything else,
 # including no `access` tag at all, is treated as public per the same
-# feedback ("se non c'è assumi public").
-RESTRICTED_ACCESS_VALUES = {'private', 'no', 'customers', 'customers_only'}
+# feedback ("se non c'è assumi public"). `customers`/`customers_only` was
+# dropped from this set 2026-08-02: "tutti gli impianti sportivi sono
+# access=customers e non sono tanto diversi dagli accessi al supermercato" --
+# anyone can walk in and become a customer (unlike `private`, which really
+# does mean a closed guest/owner list), and a supermarket carries the exact
+# same implicit condition without ever being tagged for it. Only `private`
+# and `no` remain genuinely restricted.
+RESTRICTED_ACCESS_VALUES = {'private', 'no'}
 
 
 def compute_accesso_pubblico(access_raw):
@@ -748,25 +754,32 @@ def classify_and_transform_pois(raw_pois_utm, named_routes_buffer=None):
 
         # An amenity=shelter can mean very different things -- a bus stop's
         # pensilina, an open-air civic third-place shelter, a small enclosed
-        # mountain/trail hut you could actually take cover in overnight, or
-        # just an open-sided canopy/gazebo (shade or rain cover, no walls) --
-        # and OSM's own `shelter_type` sub-tag is what actually distinguishes
-        # these (2026-07-26 feedback: "devi capire quando sei davanti ad una
-        # pensilina dell'autobus ... o davanti ad un rifugio"; 2026-08-02
-        # feedback: "gazebo, pensiline dell'autobus, bivacchi di montagna,
-        # baite, tettoie ... sono molto diverse fra loro" -- the bivacco/
-        # canopy split below responds to that). Checked in this order:
-        # explicit shelter_type=public_transport, then proximity to a mapped
-        # bus stop (shelter_type is often left blank even on real bus
-        # shelters), then the bivacco/canopy shelter_type values. A shelter
-        # with NO shelter_type tag at all can't be told apart from tags alone
-        # -- it falls through to the generic ambiguous bucket below, and
-        # needs shelter_type added on OSM to be recognized here.
+        # mountain/trail hut you could actually take cover in overnight, a
+        # freestanding open-sided pavilion (gazebo), or an attached/simple
+        # roof with no walls (tettoia) -- and OSM's own `shelter_type` sub-tag
+        # is what actually distinguishes these (2026-07-26 feedback: "devi
+        # capire quando sei davanti ad una pensilina dell'autobus ... o
+        # davanti ad un rifugio"; 2026-08-02 feedback: "gazebo, pensiline
+        # dell'autobus, bivacchi di montagna, baite, tettoie ... sono molto
+        # diverse fra loro" for the category split, then "se è una pensilina
+        # scrivi 'pensilina' se è un gazebo scrivi 'gazebo' se è un bivacco
+        # scrivi 'bivacco' ... non scrivere 'pensilina/rifugio'" -- each gets
+        # its own exact single-word label below, no more combined "X / Y"
+        # names). Checked in this order: explicit shelter_type=public_transport,
+        # then proximity to a mapped bus stop (shelter_type is often left
+        # blank even on real bus shelters), then bivacco/gazebo/tettoia
+        # shelter_type values. A shelter with NO shelter_type tag at all can't
+        # be told apart from tags alone -- it falls through to the generic
+        # "Riparo" bucket below, and needs shelter_type added on OSM to be
+        # recognized here.
         BIVACCO_SHELTER_TYPES = {'basic_hut', 'rock_shelter'}
-        CANOPY_SHELTER_TYPES = {'lean_to', 'weather_shelter', 'field_shelter', 'gazebo', 'picnic_shelter', 'sun_shelter'}
+        GAZEBO_SHELTER_TYPES = {'gazebo', 'picnic_shelter', 'sun_shelter'}
+        TETTOIA_SHELTER_TYPES = {'lean_to', 'weather_shelter', 'field_shelter'}
         is_bus_shelter = False
         is_outdoor_shelter = False
         is_bivacco_shelter = False
+        is_gazebo_shelter = False
+        is_tettoia_shelter = False
         if amenity == 'shelter':
             shelter_type = str(row.get('shelter_type', '')).lower()
             if shelter_type == 'public_transport':
@@ -776,8 +789,12 @@ def classify_and_transform_pois(raw_pois_utm, named_routes_buffer=None):
             elif shelter_type in BIVACCO_SHELTER_TYPES:
                 is_outdoor_shelter = True
                 is_bivacco_shelter = True
-            elif shelter_type in CANOPY_SHELTER_TYPES:
+            elif shelter_type in GAZEBO_SHELTER_TYPES:
                 is_outdoor_shelter = True
+                is_gazebo_shelter = True
+            elif shelter_type in TETTOIA_SHELTER_TYPES:
+                is_outdoor_shelter = True
+                is_tettoia_shelter = True
 
         # Individual street recycling bins/containers are noise; only a real
         # staffed/drop-off "isola ecologica" (recycling_type=centre) is kept
@@ -904,15 +921,21 @@ def classify_and_transform_pois(raw_pois_utm, named_routes_buffer=None):
         # it can also serve as the fallback display name for an unnamed PoI.
         # amenity=shelter's Tipo di Servizio (this same amenity_type also
         # backs the PoI table's filter/column, see CategoryTablesModal.jsx)
-        # needs the same bus/bivacco/canopy split as the name fallback and
-        # icon below -- otherwise a named gazebo would still show the generic
-        # "Rifugio / Pensilina" service type (2026-08-02 feedback).
+        # needs the same bus/bivacco/gazebo/tettoia split as the name fallback
+        # and icon below -- each type gets its own exact single-word label,
+        # never a combined "X / Y" one (2026-08-02 feedback: "se è una
+        # pensilina scrivi 'pensilina' ... non scrivere 'pensilina/rifugio'").
+        # "Riparo" (the final else, via format_amenity_type/AMENITY_TYPE_LABELS_IT)
+        # is reserved for the genuinely-ambiguous case: a shelter with no
+        # shelter_type tag at all, which can't be told apart from tags alone.
         if amenity == 'shelter' and is_bus_shelter:
             amenity_type = 'Pensilina Autobus'
         elif amenity == 'shelter' and is_bivacco_shelter:
             amenity_type = 'Bivacco'
-        elif amenity == 'shelter' and is_outdoor_shelter:
-            amenity_type = 'Gazebo / Tettoia'
+        elif amenity == 'shelter' and is_gazebo_shelter:
+            amenity_type = 'Gazebo'
+        elif amenity == 'shelter' and is_tettoia_shelter:
+            amenity_type = 'Tettoia'
         elif sub_type == 'climbing' and leisure == 'sports_centre':
             amenity_type = "Parete d'Arrampicata"
         elif sub_type == 'pitch':
