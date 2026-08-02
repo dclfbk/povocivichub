@@ -7,13 +7,13 @@ _Generato automaticamente da `python_pipeline/build_data.py`._
 - PoI grezzi nel file locale (Circoscrizione di Povo): **41**
 - Duplicati esatti rimossi dal dataset locale: **0**
 - PoI locali dopo la deduplica interna: **41**
-- PoI estratti da OpenStreetMap: **337**
+- PoI estratti da OpenStreetMap: **335**
 - Corrispondenze locale ↔ OSM fuse: **31** (di cui **30** per `osm_id` esatto, **1** per prossimità <= 25m + similarità nome > 80%)
 - PoI solo locali (nessun corrispondente OSM): **10**
-- PoI solo OSM (nessun corrispondente locale): **306**
+- PoI solo OSM (nessun corrispondente locale): **304**
 - PoI iniettati manualmente (assenti da OSM e dal dataset locale): **1**
 - Impianti sportivi ad accesso privato rimossi (non solo esclusi dagli indicatori, eliminati dal dataset): **0**
-- **Totale PoI finali nel dataset unificato: 348**
+- **Totale PoI finali nel dataset unificato: 346**
 
 ## 2. Arricchimento Dati (Wikidata)
 
@@ -25,23 +25,23 @@ _Generato automaticamente da `python_pipeline/build_data.py`._
 ## 2b. Verifica Immagini
 
 - PoI con `image_url` verificati: **59**
-- Link non raggiungibili (ripuliti, il frontend mostra un placeholder): **16**
+- Link non raggiungibili (ripuliti, il frontend mostra un placeholder): **8**
 
 ## 3. Qualità del Dato
 
-- `orari_apertura` compilato: **51 / 348**
-- `contatti` compilato: **40 / 348**
-- `image_url` compilato: **43 / 348**
-- `accessibilita_disabili` compilato: **41 / 348**
+- `orari_apertura` compilato: **50 / 346**
+- `contatti` compilato: **40 / 346**
+- `image_url` compilato: **51 / 346**
+- `accessibilita_disabili` compilato: **41 / 346**
 
 ## 4. Indice di Classe Civica (ICC) medio per categoria
 
 | Categoria | W_cat | ICC medio | N. PoI |
 |---|---|---|---|
-| cross_civic | 1.0 | 72.4 | 63 |
-| residenti | 0.8 | 63.5 | 102 |
-| occasionali | 0.6 | 40.9 | 120 |
-| pendolari | 0.4 | 48.3 | 63 |
+| cross_civic | 1.0 | 72.8 | 63 |
+| residenti | 0.8 | 63.7 | 102 |
+| occasionali | 0.6 | 40.6 | 118 |
+| pendolari | 0.4 | 48.5 | 63 |
 
 ## 5. Anomalie Rilevate
 

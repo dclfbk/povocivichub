@@ -102,6 +102,40 @@ DEDUP_NAME_THRESHOLD = 80
 # Ray Oldenburg (1989), Eric Klinenberg (2018), Jane Jacobs (1961) category weights.
 W_CAT = {'cross_civic': 1.0, 'residenti': 0.8, 'occasionali': 0.6, 'pendolari': 0.4}
 
+# Per-sub_type weight for compute_raw_poi_score (mix_index/res_score/comm_score/
+# occa_score input): every PoI used to count identically regardless of how much
+# activity it actually draws, so a drinking fountain and a university pulled
+# equal weight (2026-08-02 feedback: "ogni oggetto dovrebbe avere un peso
+# diverso"). This is a deliberately small, coarse first pass -- major anchors
+# that draw sustained daily footfall vs. minor street-furniture that's real but
+# low-signal -- rather than a fully differentiated per-sub_type table, so the
+# values stay easy to review and justify. Anything not listed keeps the
+# original flat weight of 1.0.
+POI_WEIGHT = {
+    # Major anchors: consistently pull people in, function as a neighbourhood hub.
+    'university': 1.5,
+    'research_institute': 1.5,
+    'school': 1.5,
+    'kindergarten': 1.3,
+    'supermarket': 1.5,
+    'library': 1.3,
+    'sports_centre': 1.5,
+    'sports_hall': 1.5,
+    'community_centre': 1.3,
+    'townhall': 1.3,
+    'station': 1.3,
+    'clinic': 1.3,
+    'marketplace': 1.3,
+    'museum': 1.2,
+    # Minor / low-signal: real destinations, but a much smaller individual draw.
+    'drinking_water': 0.5,
+    'public_bookcase': 0.5,
+    'bbq': 0.6,
+    'picnic_site': 0.6,
+    'shelter': 0.5,
+    'bench': 0.5,
+}
+
 # Sub-types that function as shared/third-place infrastructure regardless of
 # which sociological category they happen to be bucketed into -- a "campo da
 # calcio ad accesso pubblico lo possono usare tutti" (2026-07-25 feedback).
@@ -173,10 +207,14 @@ def fetch_osm_graph_and_pois(gdf_wgs84):
     G_utm = ox.project_graph(G, to_crs=TARGET_CRS)
     print(f"    Pedestrian network retrieved: {len(G_utm.nodes)} nodes, {len(G_utm.edges)} edges.")
 
-    # 2. Comprehensive POI tags. NOTE: benches and viewpoints are
-    # intentionally excluded (2026-07-25 feedback): they're street-furniture
-    # noise for this project's goal, not signal. `sport` is kept as its own
-    # column even for `leisure=pitch` features (not just climbing) so
+    # 2. Comprehensive POI tags. NOTE: viewpoints are intentionally excluded
+    # (2026-07-25 feedback): street-furniture noise for this project's goal,
+    # not signal. Benches (amenity=bench) were excluded for the same reason
+    # until 2026-08-02, when feedback asked for them back with a proximity-
+    # based twist: a bench's social role depends on where it sits, not on
+    # being a bench per se -- see the BENCH_AGGREGATION_SUB_TYPES
+    # reclassification in calculate_scores_and_mixite. `sport` is kept as its
+    # own column even for `leisure=pitch` features (not just climbing) so
     # pitches can be labelled "Campo da <sport>" instead of the raw OSM word
     # "pitch". `parking` and `recycling` ARE fetched, but
     # classify_and_transform_pois flags them `solo_riferimento=True` (or, for
@@ -190,7 +228,7 @@ def fetch_osm_graph_and_pois(gdf_wgs84):
             'cafe', 'restaurant', 'pub', 'bar', 'canteen', 'fast_food', 'bank', 'atm',
             'public_bookcase', 'drinking_water', 'shelter', 'place_of_worship',
             'theatre', 'arts_centre', 'parking', 'recycling', 'marketplace',
-            'fire_station', 'clinic', 'doctors', 'bbq'
+            'fire_station', 'clinic', 'doctors', 'bbq', 'bench'
         ],
         'shop': [
             'supermarket', 'bakery', 'convenience', 'butcher', 'greengrocer', 'chemist', 'books',
@@ -271,6 +309,11 @@ def fetch_named_hiking_routes(gdf_wgs84):
 # photos this pipeline already links to.
 DEFAULT_IMAGE_BY_SUB_TYPE = {
     'fitness_station': 'https://commons.wikimedia.org/wiki/Special:FilePath/Bench%20press%20at%20an%20outdoor%20fitness%20station.jpg',
+    # Generic indoor gym/sports-hall interior (2026-08-02 feedback: "recupera
+    # anche le fotografie" for leisure=sports_hall PoIs like the newly-added
+    # Povo gyms, which are anonymous OSM ways with no Wikidata entry to pull
+    # a photo from). CC BY-SA 4.0, Wikimedia Commons.
+    'sports_hall': 'https://commons.wikimedia.org/wiki/Special:FilePath/Gymnastikksal%20Selfors%2020200329%20151709.jpg',
 }
 
 # Maps (osm_key, osm_value) pairs to a MapLibre-renderable icon name. Checked in
@@ -297,6 +340,7 @@ ICON_MAP = {
     ('amenity', 'university'): 'college',
     ('amenity', 'research_institute'): 'college',
     ('amenity', 'drinking_water'): 'drinking_water',
+    ('amenity', 'bench'): 'bench',
     ('tourism', 'museum'): 'museum',
     ('tourism', 'attraction'): 'attraction',
     ('tourism', 'artwork'): 'attraction',
@@ -702,25 +746,37 @@ def classify_and_transform_pois(raw_pois_utm, named_routes_buffer=None):
         if name == 'nan':
             name = ''
 
-        # An amenity=shelter can mean three very different things -- a bus
-        # stop's pensilina, an open-air civic third-place shelter, or a
-        # mountain/trail rifugio-style hut -- and OSM's own `shelter_type`
-        # sub-tag is what actually distinguishes the last case (2026-07-26
-        # feedback: "devi capire quando sei davanti ad una pensilina
-        # dell'autobus ... o davanti ad un rifugio"). Checked in this order:
+        # An amenity=shelter can mean very different things -- a bus stop's
+        # pensilina, an open-air civic third-place shelter, a small enclosed
+        # mountain/trail hut you could actually take cover in overnight, or
+        # just an open-sided canopy/gazebo (shade or rain cover, no walls) --
+        # and OSM's own `shelter_type` sub-tag is what actually distinguishes
+        # these (2026-07-26 feedback: "devi capire quando sei davanti ad una
+        # pensilina dell'autobus ... o davanti ad un rifugio"; 2026-08-02
+        # feedback: "gazebo, pensiline dell'autobus, bivacchi di montagna,
+        # baite, tettoie ... sono molto diverse fra loro" -- the bivacco/
+        # canopy split below responds to that). Checked in this order:
         # explicit shelter_type=public_transport, then proximity to a mapped
         # bus stop (shelter_type is often left blank even on real bus
-        # shelters), then outdoor/hiking shelter_type values.
-        OUTDOOR_SHELTER_TYPES = {'basic_hut', 'lean_to', 'rock_shelter', 'weather_shelter', 'field_shelter'}
+        # shelters), then the bivacco/canopy shelter_type values. A shelter
+        # with NO shelter_type tag at all can't be told apart from tags alone
+        # -- it falls through to the generic ambiguous bucket below, and
+        # needs shelter_type added on OSM to be recognized here.
+        BIVACCO_SHELTER_TYPES = {'basic_hut', 'rock_shelter'}
+        CANOPY_SHELTER_TYPES = {'lean_to', 'weather_shelter', 'field_shelter', 'gazebo', 'picnic_shelter', 'sun_shelter'}
         is_bus_shelter = False
         is_outdoor_shelter = False
+        is_bivacco_shelter = False
         if amenity == 'shelter':
             shelter_type = str(row.get('shelter_type', '')).lower()
             if shelter_type == 'public_transport':
                 is_bus_shelter = True
             elif len(bus_stop_geoms) > 0 and bus_stop_geoms.distance(pt_utm).min() <= BUS_SHELTER_RADIUS_M:
                 is_bus_shelter = True
-            elif shelter_type in OUTDOOR_SHELTER_TYPES:
+            elif shelter_type in BIVACCO_SHELTER_TYPES:
+                is_outdoor_shelter = True
+                is_bivacco_shelter = True
+            elif shelter_type in CANOPY_SHELTER_TYPES:
                 is_outdoor_shelter = True
 
         # Individual street recycling bins/containers are noise; only a real
@@ -846,44 +902,56 @@ def classify_and_transform_pois(raw_pois_utm, named_routes_buffer=None):
         # feedback: "per il discorso di amenity=climb traduci come parete
         # d'arrampicata"). Computed here (before the name fallback below) so
         # it can also serve as the fallback display name for an unnamed PoI.
-        amenity_type = (
-            "Parete d'Arrampicata" if sub_type == 'climbing' and leisure == 'sports_centre' else
-            (format_pitch_label(sport) if sub_type == 'pitch' else
-             (ACCOMMODATION_LABEL_IT if sub_type in ACCOMMODATION_SUB_TYPES else
-              format_amenity_type(sub_type)))
-        )
+        # amenity=shelter's Tipo di Servizio (this same amenity_type also
+        # backs the PoI table's filter/column, see CategoryTablesModal.jsx)
+        # needs the same bus/bivacco/canopy split as the name fallback and
+        # icon below -- otherwise a named gazebo would still show the generic
+        # "Rifugio / Pensilina" service type (2026-08-02 feedback).
+        if amenity == 'shelter' and is_bus_shelter:
+            amenity_type = 'Pensilina Autobus'
+        elif amenity == 'shelter' and is_bivacco_shelter:
+            amenity_type = 'Bivacco'
+        elif amenity == 'shelter' and is_outdoor_shelter:
+            amenity_type = 'Gazebo / Tettoia'
+        elif sub_type == 'climbing' and leisure == 'sports_centre':
+            amenity_type = "Parete d'Arrampicata"
+        elif sub_type == 'pitch':
+            amenity_type = format_pitch_label(sport)
+        elif sub_type in ACCOMMODATION_SUB_TYPES:
+            amenity_type = ACCOMMODATION_LABEL_IT
+        else:
+            amenity_type = format_amenity_type(sub_type)
 
         # Always surface a name -- an anonymous OSM node/way shouldn't reach
         # the UI as a nameless "Punto di interesse": fall back to its translated
         # service type (2026-07-28 feedback: "non usare il tag come nome, ma
         # prendi la chiave principale e traduci il valore in italiano" --
-        # supersedes the previous raw "amenity=shelter"-style fallback). An
-        # unnamed amenity=shelter is ambiguous on its own (AMENITY_TYPE_LABELS_IT
-        # just says "Rifugio / Pensilina"), so it's disambiguated using the same
-        # bus-stop-proximity check already used for its category/icon above
-        # (2026-07-28 feedback: "attenzione fra pensiline dell'autobus e
-        # bivacchi -- basta che controlli se e' una fermata dell'autobus").
+        # supersedes the previous raw "amenity=shelter"-style fallback).
+        # amenity_type above already disambiguates an unnamed amenity=shelter
+        # (bus shelter / bivacco / gazebo-tettoia / generic ambiguous) using
+        # the same shelter_type-driven checks as its category/icon.
         if not name:
-            if amenity == 'shelter' and is_bus_shelter:
-                name = 'Pensilina Autobus'
-            elif amenity == 'shelter' and is_outdoor_shelter:
-                name = 'Bivacco'
-            else:
-                name = amenity_type or osm_tag
+            name = amenity_type or osm_tag
 
         icon_name = assign_icon_name(historic, amenity, tourism, leisure, highway, railway,
                                       sport, office, shop, public_transport, place)
         # A bus-stop shelter is transit infra (already routed to category=
         # 'pendolari' above), not the generic civic "shelter" glyph added for
         # amenity=shelter -- keep it visually grouped with the other transit
-        # icons instead. An outdoor/hiking-hut shelter (already routed to
-        # category='occasionali' above) gets its own distinct glyph too, so
-        # it doesn't read as the same "civic shelter" as an urban one
-        # (2026-07-26 feedback).
+        # icons instead. A small enclosed mountain/trail hut (bivacco) and an
+        # open-sided canopy/gazebo are functionally different enough that
+        # they get their own distinct glyphs too, rather than sharing one
+        # "outdoor shelter" icon (2026-07-26 feedback for the original split;
+        # 2026-08-02 feedback: the bivacco-vs-gazebo/tettoia distinction, plus
+        # "l'icona di un capanno... sembra una capanna in un villaggio" -- the
+        # generic ambiguous-shelter glyph read as a village hut, wrong tone
+        # for either case).
         if amenity == 'shelter' and is_bus_shelter:
             icon_name = 'bus'
-        elif amenity == 'shelter' and is_outdoor_shelter:
+        elif amenity == 'shelter' and is_bivacco_shelter:
             icon_name = 'mountain_shelter'
+        elif amenity == 'shelter' and is_outdoor_shelter:
+            icon_name = 'gazebo'
 
         # A pizzeria/pizza-al-taglio place is usually just tagged
         # amenity=restaurant or amenity=fast_food with cuisine=pizza -- give
@@ -1828,6 +1896,65 @@ def calculate_accessibility_distances(gdf_pois_utm, G_utm, raw_pois_utm):
     return gdf_pois_utm
 
 
+# Aggregation-point sub_types used to decide whether a bench functions as
+# neighbourhood social seating or isolated trail/street furniture (see
+# reclassify_benches_by_proximity below, 2026-08-02 feedback: "farei
+# riferimento a dove queste si trovano ... vicino a punti di interesse
+# aggregativi ... parchi? supermercati? bar? ristoranti? scuole?
+# università? ... o se lontane, in questo caso sono per occasionali").
+BENCH_AGGREGATION_SUB_TYPES = {
+    'park', 'garden', 'square', 'supermarket', 'bar', 'restaurant', 'cafe',
+    'pub', 'fast_food', 'school', 'kindergarten', 'university', 'playground'
+}
+BENCH_AGGREGATION_WALK_M = 400.0  # ~5 minutes at a standard ~80 m/min walking pace
+
+
+def reclassify_benches_by_proximity(gdf_pois_utm, G_utm):
+    """
+    A bench (amenity=bench) isn't a neighbourhood service in its own right --
+    unlike every other sub_type, its social role depends entirely on where it
+    sits, not on being a bench (2026-08-02 feedback). classify_and_transform_pois
+    defaults every bench to 'residenti' like any other unclassified amenity;
+    this overrides that using real network-walk proximity: a bench within a
+    ~5-minute walk of an aggregation point (BENCH_AGGREGATION_SUB_TYPES)
+    counts as neighbourhood social seating ('residenti'), everything farther
+    away serves passers-by/hikers more than residents ('occasionali'). Runs
+    before calculate_icc so the ICC's W_cat component sees the same final
+    category as everything downstream.
+    """
+    bench_mask = gdf_pois_utm['sub_type'] == 'bench'
+    n_benches = int(bench_mask.sum())
+    if n_benches == 0:
+        return gdf_pois_utm
+
+    aggregation_pois = gdf_pois_utm[gdf_pois_utm['sub_type'].isin(BENCH_AGGREGATION_SUB_TYPES)]
+    near_ids = set()
+    if len(aggregation_pois) > 0:
+        G_undirected = G_utm.to_undirected()
+        aggregation_nodes = set(ox.distance.nearest_nodes(
+            G_utm, [g.x for g in aggregation_pois.geometry], [g.y for g in aggregation_pois.geometry]
+        ))
+        dist_to_aggregation = nx.multi_source_dijkstra_path_length(G_undirected, aggregation_nodes, weight='length')
+
+        bench_pois = gdf_pois_utm[bench_mask]
+        bench_nodes = ox.distance.nearest_nodes(
+            G_utm, [g.x for g in bench_pois.geometry], [g.y for g in bench_pois.geometry]
+        )
+        for poi_id, node in zip(bench_pois.index, bench_nodes):
+            if dist_to_aggregation.get(node, math.inf) <= BENCH_AGGREGATION_WALK_M:
+                near_ids.add(poi_id)
+
+    gdf_pois_utm.loc[bench_mask, 'category'] = 'occasionali'
+    gdf_pois_utm.loc[gdf_pois_utm.index.isin(near_ids), 'category'] = 'residenti'
+    gdf_pois_utm.loc[bench_mask, 'social_function'] = (
+        gdf_pois_utm.loc[bench_mask, 'category'].map(SOCIAL_FUNCTION_BY_CATEGORY)
+    )
+
+    print(f"    Panchine (amenity=bench) vicine (<= {BENCH_AGGREGATION_WALK_M:.0f}m) a punti aggregativi "
+          f"-> residenti: {len(near_ids)} / {n_benches}; le restanti -> occasionali.")
+    return gdf_pois_utm
+
+
 def calculate_icc(gdf_pois_utm):
     """
     Compute the Indice di Classe Civica (ICC) per POI on a 0-100 scale.
@@ -1952,13 +2079,15 @@ def calculate_scores_and_mixite(gdf_hex_utm, G_utm, gdf_pois_utm, gtfs_stops):
         possible_matches_index = list(spatial_index.intersection(hex_geom.bounds))
         possible_matches = pois_gdf.iloc[possible_matches_index]
         exact_matches = possible_matches[possible_matches.intersects(hex_geom)]
-        count_inside = len(exact_matches)
+        # Each PoI inside the hex contributes its POI_WEIGHT instead of a flat
+        # 1.0 -- a university counts for more than a drinking fountain.
+        weighted_count_inside = exact_matches['sub_type'].map(POI_WEIGHT).fillna(1.0).sum()
 
         distances = pois_gdf.distance(centroid)
         min_dist = distances.min() if len(distances) > 0 else 1000.0
         proximity = math.exp(-min_dist / 250.0)
 
-        return (count_inside * 2.0) + proximity
+        return (weighted_count_inside * 2.0) + proximity
 
     raw_res_poi = np.array([compute_raw_poi_score(r.geometry, gdf_res) for _, r in gdf_hex_utm.iterrows()])
     raw_comm_poi = np.array([compute_raw_poi_score(r.geometry, gdf_comm) for _, r in gdf_hex_utm.iterrows()])
@@ -2226,6 +2355,10 @@ def main():
 
     gdf_pois_utm = calculate_accessibility_distances(gdf_pois_utm, G_utm, raw_pois_utm)
     for col in ['d_bus_m', 'd_parking_m', 't_bus_min', 't_parking_min', 'fatica_bus_pct', 'fatica_parking_pct']:
+        gdf_pois_wgs84[col] = gdf_pois_utm[col].values
+
+    gdf_pois_utm = reclassify_benches_by_proximity(gdf_pois_utm, G_utm)
+    for col in ['category', 'social_function']:
         gdf_pois_wgs84[col] = gdf_pois_utm[col].values
 
     gdf_pois_utm = calculate_icc(gdf_pois_utm)

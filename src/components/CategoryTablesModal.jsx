@@ -401,6 +401,20 @@ export default function CategoryTablesModal({ isOpen, onClose, poisData, onSelec
             >
               <Download className="w-3.5 h-3.5" /> Scarica CSV
             </button>
+            <span
+              className="text-slate-500 italic hidden sm:inline"
+              title="I dati provengono da OpenStreetMap e sono distribuiti secondo la licenza Open Database License (ODbL)"
+            >
+              Dati OSM &bull;{' '}
+              <a
+                href="https://opendatacommons.org/licenses/odbl/"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="underline hover:text-slate-300 transition"
+              >
+                ODbL
+              </a>
+            </span>
           </div>
           <div className="flex items-center gap-1.5">
             <button

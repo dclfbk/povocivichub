@@ -43,6 +43,32 @@ Applicazione dell'Entropia di Shannon su celle esagonali per calcolare l'indice 
 > * Shannon, C. E. (1948). A Mathematical Theory of Communication. *Bell System Technical Journal*, 27(3), 379–423.  
 > * Brodsky, A. (2018). *H3: Uber's Hexagonal Hierarchical Spatial Index*. Uber Engineering Blog.
 
+#### Pesi per tipologia di PoI (`POI_WEIGHT`)
+
+Fino al 2026-08-02 ogni PoI contribuiva al punteggio del proprio esagono (e quindi
+a `res_score`/`comm_score`/`occa_score`/`mix_index`) con un peso fisso di 1, a
+prescindere dal tipo: una fontanella contava quanto un'università. Da quella
+data `compute_raw_poi_score` (`python_pipeline/build_data.py`) applica invece un
+moltiplicatore per `sub_type`, definito nel dizionario `POI_WEIGHT`:
+
+| Peso | Criterio | Esempi |
+|---|---|---|
+| 1.5 | Grande "ancora" del quartiere: presenza quotidiana e stabile, alto numero di persone coinvolte | università, istituto di ricerca, scuola, supermercato, centro/palestra sportiva |
+| 1.3 | Servizio di quartiere con affluenza regolare ma più contenuta | asilo, biblioteca, centro civico, municipio, stazione, ambulatorio, mercato |
+| 1.2 | Attrattore culturale, affluenza più occasionale | museo |
+| 1.0 (default) | Tutto il resto: nessuna evidenza per scostarsi dal peso neutro | bar, ristoranti, negozi di vicinato, ecc. |
+| 0.5–0.6 | Arredo/servizio minore: presenza reale ma richiamo individuale molto basso | fontanella, bookcrossing, area picnic/bbq, rifugio/pensilina |
+
+**Come sono stati scelti questi valori.** Non da un dato di affluenza misurato
+(il progetto non dispone di conteggi di presenze), ma da un criterio esplicito e
+volutamente grezzo: quanto stabilmente e quanto spesso un PoI di quel tipo
+richiama persone nel corso della giornata, per analogia con il ruolo di "terzo
+luogo"/"infrastruttura sociale" descritto in Oldenburg (1989) e Klinenberg
+(2018) sopra. È una prima approssimazione soggetta a revisione, non una stima
+calibrata — se emergono controesempi concreti (un tipo di PoI pesato troppo
+alto o troppo basso rispetto a quanto osservato sul campo), i valori vanno
+aggiornati di conseguenza.
+
 ---
 
 ## Architettura Tecnica

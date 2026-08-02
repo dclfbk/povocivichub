@@ -1,31 +1,45 @@
 import React, { useEffect } from 'react';
 import { X, BookOpen, Users, ShieldCheck, Eye, Mountain, Sigma, Leaf, GraduationCap, Bus, Trees } from 'lucide-react';
 
+// Short "Autore, Anno" cite shown inline; the full bibliographic reference
+// (matching README.md's "Riferimenti Scientifici e Bibliografia Esatta")
+// sits in the `title` attribute as a native hover popup, so the modal stays
+// compact while the exact citation is one hover away.
 const MODELS = [
   {
     icon: Users,
     title: 'Terzi Luoghi (Ray Oldenburg)',
-    text: 'Perché i bar, i mercati e le casette dei libri sono il collante della società: spazi informali, aperti a tutti, dove ci si incontra senza uno scopo preciso.'
+    text: 'Perché i bar, i mercati e le casette dei libri sono il collante della società: spazi informali, aperti a tutti, dove ci si incontra senza uno scopo preciso.',
+    cite: 'Oldenburg, 1989',
+    citeFull: 'Oldenburg, R. (1989). The Great Good Place: Cafes, Coffee Shops, Community Centers, Beauty Parlors, General Stores, Bars, Hangouts, and How They Get You Through the Day. Paragon House. ISBN: 978-1557781109.'
   },
   {
     icon: ShieldCheck,
     title: 'Infrastruttura Sociale (Eric Klinenberg)',
-    text: 'Come i luoghi fisici condivisi — biblioteche, parchi, centri civici — aumentano la sicurezza e la resilienza di un quartiere, soprattutto nei momenti di difficoltà.'
+    text: 'Come i luoghi fisici condivisi — biblioteche, parchi, centri civici — aumentano la sicurezza e la resilienza di un quartiere, soprattutto nei momenti di difficoltà.',
+    cite: 'Klinenberg, 2018',
+    citeFull: 'Klinenberg, E. (2018). Palaces for the People: How Social Infrastructure Can Help Fight Inequality, Polarization, and the Decline of Civic Life. Crown Publishing Group. ISBN: 978-1524761370.'
   },
   {
     icon: Eye,
-    title: 'Mixité e Occhi sulla Strada (Jane Jacobs)',
-    text: "L'importanza di far convivere studenti, residenti ed escursionisti negli stessi spazi: più sguardi vigili sulla strada, più vitalità e sicurezza percepita."
+    title: 'Polifunzionalità e Occhi sulla Strada (Jane Jacobs)',
+    text: "L'importanza di far convivere studenti, residenti ed escursionisti negli stessi spazi: più sguardi vigili sulla strada, più vitalità e sicurezza percepita.",
+    cite: 'Jacobs, 1961',
+    citeFull: 'Jacobs, J. (1961). The Death and Life of Great American Cities. Random House. ISBN: 978-0679644330.'
   },
   {
     icon: Mountain,
     title: 'Tempo di Percorrenza Reale (Funzione di Tobler)',
-    text: "Come la pendenza del terreno (DTM) influenza la reale raggiungibilità a piedi, oltre la semplice distanza in linea d'aria."
+    text: "Come la pendenza del terreno (DTM) influenza la reale raggiungibilità a piedi, oltre la semplice distanza in linea d'aria.",
+    cite: 'Tobler, 1993',
+    citeFull: 'Tobler, W. (1993). Three presentations on geographical analysis and modeling: Non-isotropic geographic modeling, speculations on the geometry of geography, global spatial analysis. Technical Report 93-1, National Center for Geographic Information and Analysis (NCGIA), University of California, Santa Barbara.'
   },
   {
     icon: Sigma,
-    title: 'Indice di Mixité (Entropia di Shannon)',
-    text: 'Il calcolo matematico usato per scoprire quali zone di Povo sono vive e polifunzionali, e quali invece monofunzionali.'
+    title: 'Indice di Polifunzionalità (Entropia di Shannon)',
+    text: 'Il calcolo matematico usato per scoprire quali zone di Povo sono vive e polifunzionali, e quali invece monofunzionali.',
+    cite: 'Shannon, 1948',
+    citeFull: 'Shannon, C. E. (1948). A Mathematical Theory of Communication. Bell System Technical Journal, 27(3), 379–423.'
   }
 ];
 
@@ -138,7 +152,7 @@ export default function AboutModal({ isOpen, onClose }) {
           <section className="space-y-3">
             <h3 className="text-xs font-bold text-indigo-400 uppercase tracking-widest">I Modelli Scientifici Utilizzati</h3>
             <div className="space-y-2.5">
-              {MODELS.map(({ icon: Icon, title, text }) => (
+              {MODELS.map(({ icon: Icon, title, text, cite, citeFull }) => (
                 <div key={title} className="flex items-start gap-3 p-3 glass-card rounded-xl border border-slate-800">
                   <div className="p-2 bg-indigo-500/20 text-indigo-300 rounded-lg shrink-0 mt-0.5">
                     <Icon className="w-4 h-4" />
@@ -146,6 +160,12 @@ export default function AboutModal({ isOpen, onClose }) {
                   <div>
                     <div className="font-semibold text-slate-200">{title}</div>
                     <div className="text-slate-400 mt-0.5 text-xs leading-relaxed">{text}</div>
+                    <div
+                      className="mt-1 text-[10px] text-indigo-300/70 italic cursor-help w-fit"
+                      title={citeFull}
+                    >
+                      {cite}
+                    </div>
                   </div>
                 </div>
               ))}

@@ -542,6 +542,18 @@ export default function Sidebar({
         >
           Cookie
         </button>
+        <div className="mt-1.5">
+          Contenuti sotto licenza{' '}
+          <a
+            href="https://creativecommons.org/licenses/by/4.0/deed.it"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="hover:text-slate-200 underline transition"
+            title="Creative Commons Attribuzione 4.0 Internazionale"
+          >
+            CC BY 4.0
+          </a>
+        </div>
       </footer>
     </aside>
   );

@@ -391,8 +391,8 @@ export const CLUSTER_CATEGORY_PROPERTIES = {
 // Visual glyph + badge color per `icon_name`, as assigned by the Python pipeline's
 // ICON_MAP (build_data.py). Colors echo the dominant CATEGORY_STYLES color so the
 // unclustered POI icons stay legible against the category legend.
-// NOTE: 'bench' and 'viewpoint' are no longer produced by the pipeline (dropped
-// as street-furniture noise, 2026-07-25) but are harmless to leave mapped here.
+// NOTE: 'viewpoint' is no longer produced by the pipeline (dropped as
+// street-furniture noise, 2026-07-25) but is harmless to leave mapped here.
 export const ICON_VISUALS = {
   castle: { emoji: '🏰', color: CATEGORY_STYLES.occasionali.color },
   monument: { emoji: '🗿', color: CATEGORY_STYLES.occasionali.color },
@@ -431,7 +431,12 @@ export const ICON_VISUALS = {
   bocce: { emoji: '🎳', color: CATEGORY_STYLES.residenti.color },
   park: { emoji: '🌳', color: CATEGORY_STYLES.cross_civic.color },
   drinking_water: { emoji: '🚰', color: CATEGORY_STYLES.cross_civic.color },
-  bench: { emoji: '🪑', color: CATEGORY_STYLES.cross_civic.color },
+  // Reinstated 2026-08-02 (was dropped as noise 2026-07-25): a bench's
+  // actual category now depends on proximity to an aggregation point
+  // (build_data.py's reclassify_benches_by_proximity), so unlike the other
+  // icons here its color can't echo one fixed category -- gray, like the
+  // other "identifiable but not one fixed social function" icons above.
+  bench: { emoji: '🪑', color: '#94a3b8' },
   market: { emoji: '🛒', color: CATEGORY_STYLES.cross_civic.color },
   association: { emoji: '🤝', color: CATEGORY_STYLES.cross_civic.color },
   information: { emoji: 'ℹ️', color: '#94a3b8' },
@@ -484,7 +489,18 @@ export const ICON_VISUALS = {
   canteen: { emoji: '🍽️', color: CATEGORY_STYLES.pendolari.color },
   // Outdoor/occasionali-colored additions.
   nature_reserve: { emoji: '🌲', color: CATEGORY_STYLES.occasionali.color },
-  mountain_shelter: { emoji: '🏔️', color: CATEGORY_STYLES.occasionali.color },
+  // amenity=shelter + shelter_type=basic_hut/rock_shelter: a small enclosed
+  // hut/refuge you could actually take cover in overnight -- a plain
+  // building glyph reads more accurately than a mountain landscape (2026-08-02
+  // feedback: was previously 🏔️, and separately the generic 'shelter' hut
+  // emoji "sembra una capanna in un villaggio" -- wrong tone for either case).
+  mountain_shelter: { emoji: '🏠', color: CATEGORY_STYLES.occasionali.color },
+  // amenity=shelter + shelter_type=gazebo/picnic_shelter/sun_shelter/lean_to/
+  // weather_shelter/field_shelter: open-sided canopy/gazebo, shade or rain
+  // cover only, no walls -- functionally distinct from a bivacco (2026-08-02
+  // feedback, see mountain_shelter above and build_data.py's
+  // BIVACCO_SHELTER_TYPES/CANOPY_SHELTER_TYPES split).
+  gazebo: { emoji: '⛱️', color: CATEGORY_STYLES.occasionali.color },
   pizza: { emoji: '🍕', color: CATEGORY_STYLES.occasionali.color },
   gelateria: { emoji: '🍦', color: CATEGORY_STYLES.occasionali.color },
   // amenity=bbq (2026-07-28 feedback: "aggiungi amenity=bbq fra i punti per
