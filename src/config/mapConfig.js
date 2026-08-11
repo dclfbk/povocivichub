@@ -715,6 +715,18 @@ function reachabilityRow(icon, label, distanceM, timeMin, fatiguePct) {
   `;
 }
 
+// geouri is an RFC 5870 `geo:lat,lon` URI (see add_geouri in build_data.py) --
+// good for data interchange, but browsers have no default handler for the
+// `geo:` scheme, so clicking it does nothing on desktop and is unreliable on
+// mobile. Google's directions URL is a universal link: it deep-links into
+// the Google Maps app when installed and falls back to the Maps website
+// (with directions from the user's location) otherwise.
+function directionsUrlFromGeouri(geouri) {
+  const match = /^geo:(-?\d+\.?\d*),(-?\d+\.?\d*)/.exec(geouri || '');
+  if (!match) return '';
+  return `https://www.google.com/maps/dir/?api=1&destination=${match[1]},${match[2]}`;
+}
+
 function detailRow(icon, label, value) {
   if (!value || String(value).trim().length === 0) return '';
   return `
@@ -744,7 +756,7 @@ export function buildPoiPopupHtml(props) {
   const detailsHtml = [
     (props.indirizzo || props.geouri) ? `
       <div style="font-size: 11px; color: #e2e8f0; margin-top: 3px;">
-        📍 ${props.indirizzo ? `Indirizzo: ${props.indirizzo}` : 'Posizione'}${props.geouri ? ` · <a href="${props.geouri}" style="color: #a5b4fc; text-decoration: underline;">apri in Maps</a>` : ''}
+        📍 ${props.indirizzo ? `Indirizzo: ${props.indirizzo}` : 'Posizione'}${props.geouri ? ` · <a href="${directionsUrlFromGeouri(props.geouri)}" target="_blank" rel="noopener noreferrer" style="color: #a5b4fc; text-decoration: underline;">🧭 Raggiungi questo luogo</a>` : ''}
       </div>
     ` : '',
     detailRow('🕐', 'Orari', props.orari_apertura),
