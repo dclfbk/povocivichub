@@ -748,6 +748,19 @@ def classify_and_transform_pois(raw_pois_utm, named_routes_buffer=None):
         if website == 'nan':
             website = ''
 
+        # Address, built straight from OSM's own addr:street/addr:housenumber
+        # tags (2026-08-10 feedback: previously left blank for every
+        # OSM-sourced PoI even when OSM had the data). CAP/comune are never
+        # read from addr:postcode/addr:city -- format_indirizzo always uses
+        # the fixed CAP_TRENTO/COMUNE_TRENTO constants instead (see there).
+        addr_street = str(row.get('addr:street', ''))
+        if addr_street == 'nan':
+            addr_street = ''
+        addr_housenumber = str(row.get('addr:housenumber', ''))
+        if addr_housenumber == 'nan':
+            addr_housenumber = ''
+        indirizzo = format_indirizzo(addr_street, addr_housenumber)
+
         name = str(row.get('name', ''))
         if name == 'nan':
             name = ''
@@ -1013,7 +1026,7 @@ def classify_and_transform_pois(raw_pois_utm, named_routes_buffer=None):
             'amenity_type': amenity_type,
             'social_function': SOCIAL_FUNCTION_BY_CATEGORY[category],
             'image_url': DEFAULT_IMAGE_BY_SUB_TYPE.get(sub_type, ''),
-            'indirizzo': '',
+            'indirizzo': indirizzo,
             'orari_apertura': normalize_opening_hours(opening_hours),
             'contatti': '',
             'sito_web': website,
@@ -1044,6 +1057,78 @@ def classify_and_transform_pois(raw_pois_utm, named_routes_buffer=None):
     print(f"    Parking features kept as reference-only (also feed the distance-to-parking indicator): {n_parking_reference_only}")
     print("    OSM POIs categorized:", counts)
     return gdf_pois_utm, gdf_pois_wgs84
+
+
+# --- Address formatting (indirizzo) ------------------------------------------
+# The whole study area sits inside a single CAP/comune (Povo is a frazione of
+# Trento), so those two components are never read from source data -- they're
+# fixed constants, only `via`/civico ever varies.
+CAP_TRENTO = '38123'
+COMUNE_TRENTO = 'Trento'
+
+
+def format_indirizzo(via, civico=''):
+    """
+    Build the pipeline's standard address string 'Via X, 12, 38123 Trento'
+    from a street name + house number. CAP/comune are always the fixed
+    constants above, never taken from the source (OSM's addr:postcode/
+    addr:city occasionally disagree -- e.g. 38121 for a feature right on the
+    boundary -- but the whole circoscrizione is administratively Trento).
+    Returns '' if there's no street to anchor the address to.
+    """
+    via = (via or '').strip().rstrip(',').strip(' -')
+    civico = (civico or '').strip()
+    if not via:
+        return ''
+    parts = [via]
+    if civico:
+        parts.append(civico)
+    parts.append(f'{CAP_TRENTO} {COMUNE_TRENTO}')
+    return ', '.join(parts)
+
+
+# Matches an Italian street-type word (via/piazza/...) anywhere in the local
+# dataset's free-text `indirizzo` field -- not just at the start, since some
+# entries prefix the real street with a locality/frazione aside ("Località
+# Ponte Alto Via alla Cascata 27 – Loc.Povo", "Povo - Piazzale C. Merler, 1")
+# that should be discarded rather than kept as part of the via name. A bare
+# place description with no street-type word at all, like "Parco di
+# Oltrecastello", has no street/civico to extract and is left untouched by
+# normalize_local_indirizzo below rather than forced into a fake address.
+_INDIRIZZO_PREFIX_RE = re.compile(
+    r'\b(via|piazza|piazzale|largo|vicolo|viale|corso|strada|passo)\b\.?\s*', re.IGNORECASE
+)
+# A house-number token: 1-4 digits, optionally followed by a single attached
+# letter ("27A") or a slash + 1-2 alphanumeric chars ("9/A", "22/1") -- but
+# NOT a bare dash suffix, which in this dataset's free text usually separates
+# an unrelated trailing clause instead (e.g. "...2 - Piazzale C. Merler").
+_INDIRIZZO_NUM_RE = re.compile(r'(\d{1,4}(?:[A-Za-z](?!\w)|\s*/\s*[A-Za-z0-9]{1,2})?)')
+
+
+def normalize_local_indirizzo(raw):
+    """
+    Reformat the circoscrizione dataset's free-text `indirizzo` (wildly
+    inconsistent -- "Via Pantè 1", "Piazza G. Manci n. 6", "via della Selva,
+    27A - 38123 - Trento (TN) - ITALIA", ...) into the same standard form OSM
+    addresses use. Only attempts it when the text starts with a recognizable
+    street-type word; anything else (blank, "-", a bare place/park name) is
+    returned unchanged rather than risking a mangled fake address.
+    """
+    text = _clean(raw)
+    if not text:
+        return ''
+    prefix_m = _INDIRIZZO_PREFIX_RE.search(text)
+    if not prefix_m:
+        return text
+    prefix = text[prefix_m.start():prefix_m.end()].strip()
+    rest = text[prefix_m.end():]
+    num_m = _INDIRIZZO_NUM_RE.search(rest)
+    if not num_m:
+        return format_indirizzo(text, '')
+    via_name = rest[:num_m.start()]
+    via_name = re.sub(r'\bn\.?\s*$', '', via_name, flags=re.IGNORECASE).strip(' ,.-')
+    civico = re.sub(r'\s+', '', num_m.group(1))
+    return format_indirizzo(f'{prefix} {via_name}'.strip(), civico)
 
 
 # --- Local dataset (Circoscrizione di Povo) ---------------------------------
@@ -1252,7 +1337,7 @@ def load_local_dataset(path):
             'amenity_type': amenity_type,
             'social_function': SOCIAL_FUNCTION_BY_CATEGORY[category],
             'image_url': _clean(row.get('foto', '')),
-            'indirizzo': _clean(row.get('indirizzo', '')),
+            'indirizzo': normalize_local_indirizzo(row.get('indirizzo', '')),
             'orari_apertura': build_orari_apertura(row),
             'contatti': contatti,
             'sito_web': _clean(row.get('url', '')),
@@ -1361,7 +1446,7 @@ def deduplicate_and_merge(gdf_local_utm, gdf_local_wgs84, gdf_osm_utm, gdf_osm_w
                 # OR-combine: either side inferring "yes" is enough to count.
                 fused['offre_asporto'] = bool(osm_row.get('offre_asporto', False)) or bool(fused.get('offre_asporto', False))
                 fused['solo_riferimento'] = bool(osm_row.get('solo_riferimento', False)) or bool(fused.get('solo_riferimento', False))
-                for field in ('image_url', 'orari_apertura', 'wikidata_id', 'wikipedia_title'):
+                for field in ('image_url', 'orari_apertura', 'wikidata_id', 'wikipedia_title', 'indirizzo'):
                     if not fused.get(field):
                         fused[field] = osm_row.get(field, '')
 
@@ -2325,6 +2410,26 @@ def write_report(path, stats, gdf_pois_wgs84):
     print("    Report written.")
 
 
+def add_geouri(gdf_pois_utm, gdf_pois_wgs84):
+    """
+    Add a `geo:` URI (RFC 5870, e.g. 'geo:46.062345,11.178234') built from
+    each PoI's final WGS84 point -- lets a client open the PoI directly in a
+    native maps app. Computed here (after the local<->OSM merge and manual
+    POIs are appended, so geometry is final) rather than per-source at
+    extraction time, since a fused local+OSM record adopts OSM's more
+    precise geometry (see deduplicate_and_merge) -- computing it earlier
+    would bake in the wrong coordinates for every fused PoI.
+    """
+    geouri = gdf_pois_wgs84.geometry.apply(
+        lambda p: f'geo:{p.y:.6f},{p.x:.6f}' if p is not None and not p.is_empty else ''
+    )
+    gdf_pois_utm = gdf_pois_utm.copy()
+    gdf_pois_wgs84 = gdf_pois_wgs84.copy()
+    gdf_pois_utm['geouri'] = geouri.values
+    gdf_pois_wgs84['geouri'] = geouri.values
+    return gdf_pois_utm, gdf_pois_wgs84
+
+
 def drop_private_sport_facilities(gdf_pois_utm, gdf_pois_wgs84):
     """
     Fully remove sport facilities (pitches, courts, sports centres -- see
@@ -2366,6 +2471,8 @@ def main():
     gdf_pois_wgs84 = gpd.GeoDataFrame(
         pd.concat([gdf_pois_wgs84, manual_wgs84], ignore_index=True), geometry='geometry', crs=WGS84_CRS
     )
+
+    gdf_pois_utm, gdf_pois_wgs84 = add_geouri(gdf_pois_utm, gdf_pois_wgs84)
 
     gdf_pois_utm, gdf_pois_wgs84, n_private_sport_removed = drop_private_sport_facilities(gdf_pois_utm, gdf_pois_wgs84)
 

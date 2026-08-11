@@ -742,7 +742,11 @@ export function buildPoiPopupHtml(props) {
   const secondaryCategories = (props.categoria_secondaria || '').split(',').filter(Boolean);
 
   const detailsHtml = [
-    detailRow('📍', 'Indirizzo', props.indirizzo),
+    (props.indirizzo || props.geouri) ? `
+      <div style="font-size: 11px; color: #e2e8f0; margin-top: 3px;">
+        📍 ${props.indirizzo ? `Indirizzo: ${props.indirizzo}` : 'Posizione'}${props.geouri ? ` · <a href="${props.geouri}" style="color: #a5b4fc; text-decoration: underline;">apri in Maps</a>` : ''}
+      </div>
+    ` : '',
     detailRow('🕐', 'Orari', props.orari_apertura),
     // altitudine_m === 0 means "outside the DTM raster's coverage" (the
     // pipeline's sampling fallback -- see _sample_raster_at_points in
