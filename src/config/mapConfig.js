@@ -718,13 +718,62 @@ function reachabilityRow(icon, label, distanceM, timeMin, fatiguePct) {
 // geouri is an RFC 5870 `geo:lat,lon` URI (see add_geouri in build_data.py) --
 // good for data interchange, but browsers have no default handler for the
 // `geo:` scheme, so clicking it does nothing on desktop and is unreliable on
-// mobile. Google's directions URL is a universal link: it deep-links into
-// the Google Maps app when installed and falls back to the Maps website
-// (with directions from the user's location) otherwise.
-function directionsUrlFromGeouri(geouri) {
+// mobile. These per-provider URL builders turn it into links that actually
+// open something: Google Maps deep-links into its app when installed and
+// falls back to the website otherwise; the OSM/OsmAnd ones are OSM-data-based
+// and better suited to hiking (OSM's foot-routing engine, OsmAnd's pedestrian
+// profile). Komoot has no public URL scheme for arbitrary coordinates (its
+// planner only accepts them typed into the UI), so it's deliberately omitted.
+function parseGeouri(geouri) {
   const match = /^geo:(-?\d+\.?\d*),(-?\d+\.?\d*)/.exec(geouri || '');
-  if (!match) return '';
-  return `https://www.google.com/maps/dir/?api=1&destination=${match[1]},${match[2]}`;
+  return match ? { lat: match[1], lon: match[2] } : null;
+}
+
+function buildRouteProviders(lat, lon) {
+  return [
+    ['Google Maps', `https://www.google.com/maps/dir/?api=1&destination=${lat},${lon}`],
+    ['OpenStreetMap (a piedi)', `https://www.openstreetmap.org/directions?engine=fossgis_osrm_foot&from=&to=${lat}%2C${lon}`],
+    ['OsmAnd', `https://osmand.net/map/?start=&finish=${lat},${lon}&type=osmand&profile=pedestrian#17/${lat}/${lon}`],
+  ];
+}
+
+function buildViewProviders(lat, lon) {
+  return [
+    ['OpenStreetMap', `https://www.openstreetmap.org/?mlat=${lat}&mlon=${lon}#map=18/${lat}/${lon}`],
+    ['OsmAnd', `https://osmand.net/map/?pin=${lat},${lon}#17/${lat}/${lon}`],
+    ['Google Maps', `https://www.google.com/maps/search/?api=1&query=${lat},${lon}`],
+    ['Google Street View', `https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=${lat},${lon}`],
+  ];
+}
+
+const MAP_CHOOSER_SELECT_STYLE = 'font-size: 11px; color: #e2e8f0; background: #1e293b; border: 1px solid #475569; border-radius: 4px; padding: 2px 4px; max-width: 130px;';
+// Opens the chosen provider in a new tab, then resets to the placeholder so
+// the same <select> can be reused without a page reload always showing the
+// last pick.
+const MAP_CHOOSER_ONCHANGE = "if(this.value){window.open(this.value,'_blank','noopener');this.selectedIndex=0;}";
+
+function buildMapChooserSelect(placeholder, providers) {
+  const options = providers
+    .map(([label, url]) => `<option value="${url.replace(/&/g, '&amp;')}">${label}</option>`)
+    .join('');
+  return `
+    <select onchange="${MAP_CHOOSER_ONCHANGE}" style="${MAP_CHOOSER_SELECT_STYLE}">
+      <option value="">${placeholder}</option>
+      ${options}
+    </select>
+  `;
+}
+
+function buildMapChooserHtml(geouri) {
+  const coords = parseGeouri(geouri);
+  if (!coords) return '';
+  const { lat, lon } = coords;
+  return `
+    <div style="margin-top: 4px; display: flex; gap: 6px; flex-wrap: wrap;">
+      ${buildMapChooserSelect('🧭 Raggiungi con...', buildRouteProviders(lat, lon))}
+      ${buildMapChooserSelect('🗺️ Vedi su...', buildViewProviders(lat, lon))}
+    </div>
+  `;
 }
 
 function detailRow(icon, label, value) {
@@ -754,11 +803,12 @@ export function buildPoiPopupHtml(props) {
   const secondaryCategories = (props.categoria_secondaria || '').split(',').filter(Boolean);
 
   const detailsHtml = [
-    (props.indirizzo || props.geouri) ? `
+    props.indirizzo ? `
       <div style="font-size: 11px; color: #e2e8f0; margin-top: 3px;">
-        📍 ${props.indirizzo ? `Indirizzo: ${props.indirizzo}` : 'Posizione'}${props.geouri ? ` · <a href="${directionsUrlFromGeouri(props.geouri)}" target="_blank" rel="noopener noreferrer" style="color: #a5b4fc; text-decoration: underline;">🧭 Raggiungi questo luogo</a>` : ''}
+        📍 Indirizzo: ${props.indirizzo}
       </div>
     ` : '',
+    buildMapChooserHtml(props.geouri),
     detailRow('🕐', 'Orari', props.orari_apertura),
     // altitudine_m === 0 means "outside the DTM raster's coverage" (the
     // pipeline's sampling fallback -- see _sample_raster_at_points in
