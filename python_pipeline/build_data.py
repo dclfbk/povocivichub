@@ -577,6 +577,8 @@ AMENITY_TYPE_LABELS_IT = {
     'doctors': 'Studio Medico',
     'nature_reserve': 'Riserva Naturale',
     'bbq': 'Area Barbecue',
+    'bakery': 'Panificio',
+    'table_tennis': 'Campo da ping pong',
 }
 
 
@@ -1316,6 +1318,11 @@ def load_local_dataset(path):
             amenity_type = LOCAL_ATTORE_AMENITY_OVERRIDES[attore]
             if local_icon_name == 'marker':
                 local_icon_name = LOCAL_ATTORE_ICON_OVERRIDES.get(attore, local_icon_name)
+        elif servizio in GRUPPI_SERVIZIO:
+            # `attore` is the operator ("Dedem SPA", "Volontarie + Circoscrizione
+            # di Povo", ...), not a service type -- using it here flooded the
+            # "Tipo di Servizio" filter with one-off values (2026-10-09 feedback).
+            amenity_type = classify_mappatura_poi(nome, servizio)[3]
         else:
             amenity_type = normalize_attore(attore)
 
@@ -1439,6 +1446,8 @@ def deduplicate_and_merge(gdf_local_utm, gdf_local_wgs84, gdf_osm_utm, gdf_osm_w
                 fused['geometry'] = osm_row.geometry
                 fused['osm_tag'] = osm_row['osm_tag']
                 fused['icon_name'] = osm_row['icon_name']
+                if osm_row.get('amenity_type') and fused.get('amenity_type') not in LOCAL_ATTORE_AMENITY_OVERRIDES.values():
+                    fused['amenity_type'] = osm_row['amenity_type']
                 fused['source'] = 'locale+osm'
                 # OSM carries the real `access` tag; the local dataset only ever
                 # defaults to True, so OSM's value is the more informative one.
@@ -1490,36 +1499,10 @@ def deduplicate_and_merge(gdf_local_utm, gdf_local_wgs84, gdf_osm_utm, gdf_osm_w
 # here by hand ("Mercato Zonale del Martedì") has been dropped -- the
 # circoscrizione dataset now supplies a more accurate, authoritative
 # "Mercato Settimanale" entry (correct Tue/Wed/Sat schedule) that supersedes it.
-MANUAL_POIS = [
-    {
-        'id': 'manual_stoi_chegul',
-        'osm_id': '',
-        'name': 'Stoi del Chegul (Ricoveri Militari)',
-        'category': 'occasionali',
-        'sub_type': 'historic',
-        'osm_tag': 'manual=historic',
-        'icon_name': 'historic',
-        'amenity_type': 'Patrimonio Storico & Outdoor',
-        'social_function': (
-            "Luogo della memoria e tappa chiave dell'escursionismo locale. Connette "
-            "la storia del fronte con il turismo sostenibile."
-        ),
-        'image_url': 'https://upload.wikimedia.org/wikipedia/commons/thumb/1/1a/Trento_-_Monte_Celva_-_Trottole_02.jpg/640px-Trento_-_Monte_Celva_-_Trottole_02.jpg',
-        'indirizzo': 'Monte Celva',
-        'orari_apertura': '',
-        'contatti': '',
-        'sito_web': '',
-        'accessibilita_disabili': '',
-        'source': 'manuale',
-        'wikidata_id': '',
-        'wikipedia_title': '',
-        'accesso_pubblico': True,
-        'offre_asporto': False,
-        'solo_riferimento': False,
-        'lon': 11.1782,
-        'lat': 46.0625
-    }
-]
+# 2026-10-09: the hand-placed "Stoi del Chegul (Ricoveri Militari)" entry
+# that lived here was 1.5 km off -- the circoscrizione's My Maps now supplies
+# the Stoi (and its bocce field) via raw_data/mappatura_povo.csv instead.
+MANUAL_POIS = []
 
 
 def build_manual_pois():
@@ -1531,7 +1514,7 @@ def build_manual_pois():
         meta['geometry'] = Point(poi['lon'], poi['lat'])
         records_wgs84.append(meta)
 
-    gdf_wgs84 = gpd.GeoDataFrame(records_wgs84, crs=WGS84_CRS)
+    gdf_wgs84 = gpd.GeoDataFrame(records_wgs84, geometry=[r['geometry'] for r in records_wgs84], crs=WGS84_CRS)
     gdf_utm = gdf_wgs84.to_crs(TARGET_CRS)
     print(f"    Manual POIs injected: {len(gdf_wgs84)}")
     return gdf_utm, gdf_wgs84
@@ -1572,6 +1555,556 @@ def apply_osm_field_overrides(gdf_utm, gdf_wgs84):
         n_patched += 1
     print(f"--> Applied hand-curated field overrides to {n_patched}/{len(OSM_FIELD_OVERRIDES)} known OSM features.")
     return gdf_utm, gdf_wgs84
+
+
+# --- Mappatura servizi (PDF circoscrizione + Google My Maps) ------------------
+
+# 2026-10-09 feedback: the circoscrizione's own "Mappatura servizi" table (PDF)
+# is the authority for WHICH places exist and how they're named/grouped; their
+# Google My Maps supplies coordinates, descriptions and photos; OSM stays the
+# alignment target (osm_id). raw_data/mappatura_povo.csv is the hand-curated
+# crosswalk between the three: one row per PDF entry, with the exact My Maps
+# placemark name ('mymaps', a " #2" suffix picks the second placemark sharing
+# that name), an optional pinned `osm_id` (or MAPPATURA_FORCE_NEW to never
+# attach the row to an existing PoI), and optional manual lat/lon for
+# entries that exist in neither (taken from OSM by hand).
+MAPPATURA_INPUT = "../raw_data/mappatura_povo.csv"
+# `coordinate` column value: take the position from the pinned `osm_id`
+# element instead of the My Maps pin (2026-10-09 feedback: "le coordinate
+# devono venire da OSM"). Elements outside the circoscrizione boundary (never
+# fetched by fetch_osm_graph_and_pois -- e.g. Ponte Alto, on the border) are
+# looked up by id (fetch_osm_elements).
+MAPPATURA_COORD_OSM = 'osm'
+OSM_ELEMENTS_CACHE = "cache/mappatura_osm_elements.json"
+OVERPASS_URL = "https://overpass-api.de/api/interpreter"
+
+# `osm_id` value marking a sub-space of a bigger place ("Palestra presso APSP")
+# that must stay its own PoI instead of renaming the place it sits in.
+MAPPATURA_FORCE_NEW = 'nuovo'
+MYMAPS_KML_URL = "https://www.google.com/maps/d/kml?mid=10BNIKSGkILXHrjd5Ibp_b7DaS6TQnK4&forcekml=1"
+# Under cache/ on purpose: update_data.sh wipes it, so every data update
+# re-downloads the current My Maps; plain re-runs reuse the copy.
+MYMAPS_KML_CACHE = "cache/mymaps_povo.kml"
+# My Maps photos are re-hosted (downsized JPEG) rather than hot-linked: the
+# mymaps.usercontent.google.com URLs are long-lived but undocumented, and the
+# originals are ~1MB PNGs.
+FOTO_OUTPUT_DIR = "../public/data/foto"
+FOTO_PUBLIC_PREFIX = "./data/foto/"
+FOTO_MAX_PX = 800
+# My Maps pins are hand-placed, OSM features are centroids -- looser than
+# DEDUP_RADIUS_M/DEDUP_NAME_THRESHOLD, which compare two machine-placed points.
+MAPPATURA_MATCH_RADIUS_M = 80
+MAPPATURA_NAME_THRESHOLD = 70
+# Two relaxations for real-world My Maps vs OSM pairs the name rule misses:
+# an unnamed OSM feature (its `name` is just the translated tag, "Fontanella",
+# "Area Fitness") of the same icon AND sub_type (OSM draws picnic sites with
+# the park icon, so icon alone would fuse a picnic area into a park) within MAPPATURA_TYPE_RADIUS_M, and any
+# candidate within MAPPATURA_CLOSE_RADIUS_M sharing a word ("Mercato di Piazza
+# Manci..." vs the local "Mercato Settimanale", 7m apart).
+MAPPATURA_TYPE_RADIUS_M = 40
+MAPPATURA_CLOSE_RADIUS_M = 15
+MAPPATURA_CLOSE_NAME_THRESHOLD = 50
+
+# PDF group label -> (gruppo_servizio key, default category, default icon).
+# The key is what the frontend filters on (src/config/mapConfig.js GRUPPI_SERVIZIO).
+GRUPPI_SERVIZIO = {
+    'Cultura e tempo libero': ('cultura', 'cross_civic', 'community_centre'),
+    'Aree sportive': ('sport', 'occasionali', 'sport'),
+    'Ristorazione e agriturismi': ('ristorazione', 'occasionali', 'restaurant'),
+    'Servizi e attività economiche': ('servizi', 'residenti', 'marker'),
+    'Luoghi di culto': ('culto', 'residenti', 'place_of_worship'),
+    'Associazioni e gruppi': ('associazioni', 'cross_civic', 'association'),
+    'Parchi e aree picnic': ('parchi', 'occasionali', 'park'),
+    'Percorsi escursionistici': ('percorsi', 'occasionali', 'information'),
+    'Luoghi di interesse storico/artistico/naturalistico e fontane': ('monumenti', 'occasionali', 'monument'),
+    # The local dataset's own (older, shorter) spelling of the same bucket.
+    'Luoghi/monumenti di interesse storico/artistico e fontane': ('monumenti', 'occasionali', 'monument'),
+    'Mobilità': ('mobilita', 'pendolari', 'bus'),
+}
+
+# Every PoI NOT listed in the mappatura still gets a gruppo_servizio from its
+# OSM sub_type, so the map filter covers the whole dataset. Anything unlisted
+# (benches, info boards, university buildings, ...) lands in 'altro'.
+GRUPPO_BY_SUB_TYPE = {
+    'cultura': ['library', 'theatre', 'community_centre', 'public_bookcase', 'arts_centre', 'amphitheatre', 'museum'],
+    'sport': ['pitch', 'sports_hall', 'sports_centre', 'climbing', 'fitness_station', 'table_tennis'],
+    'ristorazione': ['restaurant', 'bar', 'cafe', 'pub', 'fast_food', 'canteen', 'guest_house'],
+    'servizi': [
+        'pharmacy', 'post_office', 'bank', 'atm', 'supermarket', 'bakery', 'convenience', 'butcher',
+        'greengrocer', 'chemist', 'books', 'copyshop', 'beauty', 'hairdresser', 'deli', 'school',
+        'kindergarten', 'social_facility', 'clinic', 'doctors', 'fire_station', 'recycling',
+        'marketplace', 'townhall'
+    ],
+    'culto': ['place_of_worship'],
+    'associazioni': ['association', 'ngo'],
+    'parchi': ['park', 'garden', 'playground', 'picnic_site', 'bbq'],
+    'monumenti': [
+        'drinking_water', 'memorial', 'monument', 'castle', 'fort', 'ruins', 'archaeological_site',
+        'attraction', 'trench', 'historic', 'nature_reserve', 'artwork'
+    ],
+    'mobilita': ['platform', 'bus_stop', 'station', 'halt', 'parking'],
+}
+GRUPPO_BY_SUB_TYPE = {sub: gruppo for gruppo, subs in GRUPPO_BY_SUB_TYPE.items() for sub in subs}
+
+# For mappatura entries with no existing PoI to attach to: (substring of the
+# lowercased PDF name) -> (category, icon_name, sub_type, amenity_type).
+# sub_type matters beyond display -- it drives POI_WEIGHT, the
+# place_of_worship indicator exclusion and PUBLIC_INTEREST_SUB_TYPES.
+# Checked in order; first hit wins.
+MAPPATURA_KEYWORDS = [
+    ('chies', 'residenti', 'place_of_worship', 'place_of_worship', 'Luogo di Culto'),
+    ('cappella', 'residenti', 'place_of_worship', 'place_of_worship', 'Luogo di Culto'),
+    ('cimitero', 'residenti', 'place_of_worship', 'place_of_worship', 'Cimitero'),
+    ('ping pong', 'occasionali', 'table_tennis', 'table_tennis', 'Campo da ping pong'),
+    ('basket', 'occasionali', 'basketball_court', 'pitch', 'Campo da basket'),
+    ('volley', 'occasionali', 'volleyball_court', 'pitch', 'Campo da pallavolo'),
+    ('calisthenics', 'occasionali', 'fitness_station', 'fitness_station', 'Area Fitness'),
+    ('falesi', 'occasionali', 'climbing', 'climbing', "Falesia d'Arrampicata"),
+    ('piscina', 'occasionali', 'sport', 'sports_centre', 'Piscina'),
+    ('palestra', 'occasionali', 'sports_hall', 'sports_hall', 'Palestra'),
+    ('centro sportivo', 'occasionali', 'sport', 'sports_centre', 'Centro Sportivo'),
+    ('campo', 'occasionali', 'sport', 'pitch', 'Campo da calcio'),
+    ('parco giochi', 'occasionali', 'playground', 'playground', 'Parco Giochi'),
+    ('area giochi', 'occasionali', 'playground', 'playground', 'Parco Giochi'),
+    ('altalene', 'occasionali', 'playground', 'playground', 'Parco Giochi'),
+    ('grill', 'occasionali', 'bbq', 'bbq', 'Area Barbecue'),
+    ('grigliate', 'occasionali', 'bbq', 'bbq', 'Area Barbecue'),
+    ('picnic', 'occasionali', 'park', 'picnic_site', 'Area Picnic'),
+    ('panchine', 'occasionali', 'park', 'picnic_site', 'Area Picnic'),
+    ('sala ', 'cross_civic', 'community_centre', 'community_centre', 'Sala Pubblica'),
+    ('salone', 'cross_civic', 'community_centre', 'community_centre', 'Sala Pubblica'),
+    ('patto di collaborazione', 'cross_civic', 'community_centre', 'community_centre', 'Spazio Comunitario'),
+    ('teatro', 'cross_civic', 'theater', 'theatre', 'Teatro'),
+    ('fontana', 'cross_civic', 'drinking_water', 'drinking_water', 'Fontana'),
+    ('fonte', 'cross_civic', 'drinking_water', 'drinking_water', 'Fontana'),
+    ('dae', 'residenti', 'clinic', 'defibrillator', 'Defibrillatore (DAE)'),
+    ('crm', 'residenti', 'recycling', 'recycling', 'Centro Raccolta Materiali'),
+    ('frutta', 'residenti', 'greengrocer', 'greengrocer', 'Fruttivendolo'),
+    ('colonnina', 'pendolari', 'parking', 'charging_station', 'Colonnina di Ricarica'),
+    ('stazione', 'pendolari', 'bus', 'station', 'Stazione'),
+    ('sentiero', 'occasionali', 'information', 'hiking_start', 'Percorso Escursionistico'),
+    ('passeggiata', 'occasionali', 'information', 'hiking_start', 'Percorso Escursionistico'),
+    ('passo ', 'occasionali', 'information', 'hiking_start', 'Percorso Escursionistico'),
+    ('gallerie', 'occasionali', 'ruins', 'ruins', 'Sito Storico'),
+    ('orrido', 'occasionali', 'nature_reserve', 'nature_reserve', 'Sito Naturalistico'),
+    ('masso', 'occasionali', 'nature_reserve', 'nature_reserve', 'Sito Naturalistico'),
+    ('albero', 'occasionali', 'nature_reserve', 'nature_reserve', 'Albero Monumentale'),
+    ('giardino', 'occasionali', 'park', 'garden', 'Giardino Pubblico'),
+    ('villa', 'occasionali', 'monument', 'monument', 'Edificio Storico'),
+    ('agritur', 'occasionali', 'hotel', 'guest_house', 'Agriturismo'),
+    ('bookcrossing', 'cross_civic', 'library', 'public_bookcase', 'Bookcrossing'),
+    ('biblioteca', 'pendolari', 'library', 'library', 'Biblioteca'),
+    ('anfiteatro', 'occasionali', 'theater', 'amphitheatre', 'Anfiteatro'),
+    ('centro civico', 'cross_civic', 'community_centre', 'community_centre', 'Centro Civico'),
+    ('casa sociale', 'cross_civic', 'community_centre', 'community_centre', 'Sala Pubblica'),
+    ('pizz', 'occasionali', 'pizza', 'restaurant', 'Pizzeria'),
+    ('gelateria', 'occasionali', 'gelateria', 'cafe', 'Gelateria'),
+    ('ristorante', 'occasionali', 'restaurant', 'restaurant', 'Ristorante'),
+    ('gastronomia', 'occasionali', 'deli', 'deli', 'Gastronomia'),
+    ('drink', 'occasionali', 'cafe', 'bar', 'Bar'),
+    ('bar ', 'occasionali', 'cafe', 'bar', 'Bar'),
+    ('pane', 'residenti', 'bakery', 'bakery', 'Panificio'),
+    ('mercat', 'cross_civic', 'market', 'marketplace', 'Mercato'),
+    ("scuola dell", 'residenti', 'kindergarten', 'kindergarten', "Scuola dell'Infanzia"),
+    ('scuola', 'residenti', 'school', 'school', 'Scuola'),
+    ('farmacia', 'residenti', 'pharmacy', 'pharmacy', 'Farmacia'),
+    ('postale', 'residenti', 'post_office', 'post_office', 'Ufficio Postale'),
+    ('poste ', 'residenti', 'post_office', 'post_office', 'Ufficio Postale'),
+    ('banca', 'residenti', 'bank', 'bank', 'Banca'),
+    ('cooperativa', 'residenti', 'supermarket', 'supermarket', 'Supermercato'),
+    ('officina', 'residenti', 'workshop', 'car_repair', 'Officina'),
+    ('autodelta', 'residenti', 'workshop', 'car_repair', 'Officina'),
+    ('estetic', 'residenti', 'beauty', 'beauty', 'Centro Estetico'),
+    ('prelievi', 'residenti', 'clinic', 'clinic', 'Punto Prelievi'),
+    ('fototessere', 'residenti', 'photo_booth', 'photo_booth', 'Cabina Fototessere'),
+    ('vigili del fuoco', 'residenti', 'fire_station', 'fire_station', 'Vigili del Fuoco'),
+    ('a.p.s.p', 'residenti', 'nursing_home', 'social_facility', 'Servizi alla Persona'),
+    ('copisteria', 'pendolari', 'copyshop', 'copyshop', 'Copisteria'),
+    ('monumento', 'occasionali', 'monument', 'memorial', 'Monumento'),
+    ('lapide', 'occasionali', 'monument', 'memorial', 'Lapide Commemorativa'),
+    ('forte ', 'occasionali', 'castle', 'fort', 'Forte'),
+    # Last: "Bar al Salè - Panificio Tabacchi" is a bar first.
+    ('tabacc', 'residenti', 'convenience', 'convenience', 'Tabaccheria'),
+]
+
+_NAME_STOPWORDS = {'di', 'da', 'del', 'della', 'dei', 'al', 'alla', 'il', 'la', 'le', 'lo', 'e', 'ed', 'presso', 'c', 'o'}
+
+
+def _norm_name(name):
+    tokens = re.sub(r"[^\w]+", ' ', str(name or '').lower()).split()
+    return ' '.join(t for t in tokens if t not in _NAME_STOPWORDS)
+
+
+def _kml_description_text(html):
+    """My Maps description (HTML with the photo <img>s inlined) -> plain text."""
+    text = re.sub(r'<img[^>]*>', '', html or '')
+    text = re.sub(r'<br\s*/?>', '\n', text, flags=re.I)
+    text = re.sub(r'<[^>]+>', '', text)
+    text = re.sub(r'\n{3,}', '\n\n', text).strip()
+    # Draft descriptions ("n. ... / mail ....") are kept as they are
+    # (2026-10-14 feedback: "vanno bene le descrizioni in bozza").
+    return text
+
+
+def load_mymaps_placemarks():
+    """
+    Fetch (or reuse the cached) My Maps KML and return
+    {placemark name: {'folder', 'lon', 'lat', 'descrizione', 'foto': [urls]}}.
+    A repeated name gets a " #2", " #3", ... suffix in KML order.
+    """
+    import xml.etree.ElementTree as ET
+
+    if not os.path.exists(MYMAPS_KML_CACHE):
+        print("    Downloading Google My Maps KML...")
+        try:
+            resp = requests.get(MYMAPS_KML_URL, headers=WIKIDATA_HEADERS, timeout=30)
+            resp.raise_for_status()
+            os.makedirs(os.path.dirname(MYMAPS_KML_CACHE), exist_ok=True)
+            with open(MYMAPS_KML_CACHE, 'wb') as f:
+                f.write(resp.content)
+        except Exception as e:
+            print("    Warning: My Maps KML unavailable, mappatura uses only OSM/manual positions:", e)
+            return {}
+
+    ns = '{http://www.opengis.net/kml/2.2}'
+    root = ET.parse(MYMAPS_KML_CACHE).getroot()
+    placemarks = {}
+    for folder in root.iter(ns + 'Folder'):
+        folder_name = (folder.findtext(ns + 'name') or '').strip()
+        for pm in folder.findall(ns + 'Placemark'):
+            coords = pm.findtext('.//' + ns + 'Point/' + ns + 'coordinates')
+            if not coords:
+                continue
+            lon, lat = (float(v) for v in coords.strip().split(',')[:2])
+            foto = []
+            for data in pm.iter(ns + 'Data'):
+                if data.get('name') == 'gx_media_links':
+                    foto = (data.findtext(ns + 'value') or '').split()
+            name = (pm.findtext(ns + 'name') or '').strip()
+            key, n = name, 1
+            while key in placemarks:
+                n += 1
+                key = f'{name} #{n}'
+            placemarks[key] = {
+                'folder': folder_name,
+                'lon': lon,
+                'lat': lat,
+                'descrizione': _kml_description_text(pm.findtext(ns + 'description')),
+                'foto': foto,
+            }
+    print(f"    My Maps: {len(placemarks)} placemarks.")
+    return placemarks
+
+
+def fetch_osm_elements(osm_ids):
+    """
+    {'node/1': {'c': (lon, lat), 't': {tags}}, ...} for the given OSM element
+    ids (centroid for ways/relations), cached on disk. The tags carry the
+    element's `wikidata`, so linked-by-id PoIs get a photo from
+    enrich_missing_data like any other OSM PoI.
+    """
+    import json
+    import time
+
+    cache = {}
+    if os.path.exists(OSM_ELEMENTS_CACHE):
+        with open(OSM_ELEMENTS_CACHE) as f:
+            cache = json.load(f)
+    missing = sorted({i for i in osm_ids if i not in cache})
+    if missing:
+        by_type = {'node': [], 'way': [], 'relation': []}
+        for osm_id in missing:
+            kind, num = osm_id.split('/')
+            by_type[kind].append(num)
+        query = '[out:json][timeout:60];(' + ''.join(
+            f'{kind}(id:{",".join(nums)});' for kind, nums in by_type.items() if nums
+        ) + ');out center tags;'
+        for attempt in range(4):
+            try:
+                resp = requests.post(OVERPASS_URL, data={'data': query}, headers=WIKIDATA_HEADERS, timeout=90)
+                resp.raise_for_status()
+                for el in resp.json()['elements']:
+                    c = el.get('center', el)
+                    cache[f"{el['type']}/{el['id']}"] = {'c': (c['lon'], c['lat']), 't': el.get('tags', {})}
+                break
+            except Exception as e:
+                print(f"    Overpass id lookup failed (attempt {attempt + 1}):", e)
+                time.sleep(15)
+        os.makedirs(os.path.dirname(OSM_ELEMENTS_CACHE), exist_ok=True)
+        with open(OSM_ELEMENTS_CACHE, 'w') as f:
+            json.dump(cache, f)
+    return {i: cache[i] for i in osm_ids if i in cache}
+
+
+def download_mymaps_photo(url):
+    """Download + downsize one My Maps photo into FOTO_OUTPUT_DIR; returns its public path or ''."""
+    import hashlib
+    from io import BytesIO
+    from PIL import Image
+
+    # The KML's own URL asks for the 16383px original (`fife=s16383`).
+    fname = 'mymaps_' + hashlib.sha1(url.encode()).hexdigest()[:16] + '.jpg'
+    out_path = os.path.join(FOTO_OUTPUT_DIR, fname)
+    if not os.path.exists(out_path):
+        try:
+            resp = requests.get(re.sub(r'fife=s\d+', f'fife=s{FOTO_MAX_PX}', url), headers=WIKIDATA_HEADERS, timeout=30)
+            resp.raise_for_status()
+            img = Image.open(BytesIO(resp.content)).convert('RGB')
+            img.thumbnail((FOTO_MAX_PX, FOTO_MAX_PX))
+            os.makedirs(FOTO_OUTPUT_DIR, exist_ok=True)
+            img.save(out_path, 'JPEG', quality=82, optimize=True)
+        except Exception as e:
+            print("    Warning: photo download failed:", e)
+            return ''
+    return FOTO_PUBLIC_PREFIX + fname
+
+
+def classify_mappatura_poi(nome, gruppo_label):
+    """(category, icon_name, sub_type, amenity_type) for a mappatura entry with no existing PoI."""
+    nome_low = (nome or '').lower() + ' '
+    for keyword, category, icon, sub_type, amenity_type in MAPPATURA_KEYWORDS:
+        if keyword in nome_low:
+            return category, icon, sub_type, amenity_type
+    for keyword, category, icon in LOCAL_CATEGORY_KEYWORDS:
+        if keyword in nome_low:
+            return category, icon, icon, format_amenity_type(icon)
+    _, category, icon = GRUPPI_SERVIZIO[gruppo_label]
+    return category, icon, icon, gruppo_label
+
+
+def assign_gruppo_servizio(row):
+    """Fallback gruppo for PoIs the mappatura doesn't list: local `servizio` bucket, then OSM sub_type."""
+    sub_type = row.get('sub_type', '')
+    if sub_type in GRUPPI_SERVIZIO:
+        return GRUPPI_SERVIZIO[sub_type][0]
+    return GRUPPO_BY_SUB_TYPE.get(sub_type, 'altro')
+
+
+def apply_mappatura(gdf_utm, gdf_wgs84):
+    """
+    Overlay the circoscrizione's mappatura onto the merged OSM+local PoIs.
+    Each CSV row is attached to an existing PoI (pinned osm_id first, else best
+    name match within MAPPATURA_MATCH_RADIUS_M of its position) or, failing
+    that, added as a new PoI. Matched/new PoIs take the PDF name, the PDF
+    group, the My Maps position, description and photo. Rows with no position
+    at all are only reported. Every other PoI gets a gruppo_servizio from its
+    sub_type (assign_gruppo_servizio).
+    """
+    print("--> Applying circoscrizione mappatura (PDF + Google My Maps)...")
+    gdf_utm = gdf_utm.copy()
+    gdf_wgs84 = gdf_wgs84.copy()
+    gdf_utm['gruppo_servizio'] = gdf_utm.apply(assign_gruppo_servizio, axis=1)
+    gdf_utm['mappatura_n'] = None
+    gdf_utm['descrizione'] = ''
+    stats = {'n_rows': 0, 'n_matched': 0, 'n_new': 0, 'n_photos': 0, 'rows': [], 'unused_placemarks': []}
+
+    if not os.path.exists(MAPPATURA_INPUT):
+        print("    Mappatura CSV not found, skipping.")
+        for col in ('gruppo_servizio', 'mappatura_n', 'descrizione'):
+            gdf_wgs84[col] = gdf_utm[col].values
+        return gdf_utm, gdf_wgs84, stats
+
+    mappatura = pd.read_csv(MAPPATURA_INPUT, dtype=str).fillna('')
+    if 'coordinate' not in mappatura.columns:
+        mappatura['coordinate'] = ''
+    placemarks = load_mymaps_placemarks()
+    used_placemarks = set()
+
+    # Reference-only PoIs (parking, off-route signage) are never a mappatura target.
+    candidates = gdf_utm[~gdf_utm['solo_riferimento'].map(lambda v: isinstance(v, (bool, np.bool_)) and bool(v))]
+
+    # Every pinned OSM element: the already-loaded PoI when it's inside the
+    # boundary, an id lookup otherwise (position for `coordinate == osm` rows,
+    # tags -- wikidata -- for the new PoIs created from them).
+    osm_wanted = set(mappatura['osm_id']) - {'', MAPPATURA_FORCE_NEW}
+    osm_positions = {}
+    for osm_id in osm_wanted:
+        hits = gdf_wgs84.index[gdf_wgs84['osm_id'] == osm_id]
+        if len(hits):
+            geom = gdf_wgs84.at[hits[0], 'geometry']
+            osm_positions[osm_id] = (geom.x, geom.y)
+    osm_elements = fetch_osm_elements(osm_wanted - set(osm_positions))
+    osm_positions.update({i: tuple(el['c']) for i, el in osm_elements.items()})
+
+    # Pass 1: resolve each row's position (OSM, My Maps or manual) and pinned osm_id.
+    resolved = []
+    pos_src = {}
+    for _, row in mappatura.iterrows():
+        # "A | B": two My Maps placemarks for the same place (2026-10-14:
+        # "Punto grigliate" = "Area picnic strada per Maranza"). The first
+        # gives position and photo; descriptions are joined.
+        pm = None
+        for name in (n.strip() for n in row['mymaps'].split(' | ') if n.strip()):
+            found = placemarks.get(name)
+            if found is None:
+                print(f"    Warning: My Maps placemark not found: {name!r}")
+                continue
+            used_placemarks.add(name)
+            if pm is None:
+                pm = dict(found)
+            else:
+                pm['descrizione'] = '\n\n'.join(d for d in (pm['descrizione'], found['descrizione']) if d)
+                pm['foto'] = pm['foto'] or found['foto']
+        if row['coordinate'] == MAPPATURA_COORD_OSM and row['osm_id'] in osm_positions:
+            (lon, lat), src = osm_positions[row['osm_id']], 'OSM'
+        else:
+            if row['coordinate'] == MAPPATURA_COORD_OSM:
+                print(f"    Warning: no OSM position for {row['nome']!r} ({row['osm_id']}), falling back")
+            if pm is not None:
+                (lon, lat), src = (pm['lon'], pm['lat']), 'My Maps'
+            elif row['lat'] and row['lon']:
+                (lon, lat), src = (float(row['lon']), float(row['lat'])), 'manuale'
+            else:
+                lon = lat = None
+                src = ''
+        pos_src[len(resolved)] = src
+        resolved.append((row, pm, lon, lat))
+
+    claimed = set()
+    match = {}  # resolved position -> (candidate index, how)
+    for r, (row, pm, lon, lat) in enumerate(resolved):
+        if row['osm_id'] == MAPPATURA_FORCE_NEW:
+            continue
+        if row['osm_id']:
+            hits = [i for i in candidates.index[candidates['osm_id'] == row['osm_id']] if i not in claimed]
+            if hits:
+                match[r] = (hits[0], 'osm_id')
+                claimed.add(hits[0])
+
+    # Pass 2: name matching around the position, assigned globally best-score
+    # first so a generic row ("Area picnic Forte Roncogno") can't grab the PoI
+    # a more specific later row ("Forte Sella di Roncogno") is the real match
+    # for. A candidate must sit in the same gruppo (or the catch-all 'altro'):
+    # bus stops are named after the place they serve ("Povo / Piazza Manci",
+    # "Spré / Santa Lucia"), which otherwise out-scores everything nearby.
+    # A pinned osm_id that isn't among the PoIs (e.g. a defibrillator, a tag
+    # this pipeline doesn't fetch) is authoritative: no name fallback.
+    generic_names = set(AMENITY_TYPE_LABELS_IT.values())
+    pairs = []
+    for r, (row, pm, lon, lat) in enumerate(resolved):
+        if r in match or row['osm_id'] or lon is None:
+            continue
+        gruppo_key = GRUPPI_SERVIZIO[row['gruppo']][0]
+        _, row_icon, row_sub_type, _ = classify_mappatura_poi(row['nome'], row['gruppo'])
+        pt = gpd.GeoSeries([Point(lon, lat)], crs=WGS84_CRS).to_crs(TARGET_CRS).iloc[0]
+        dists = candidates.geometry.distance(pt)
+        for i in dists.index[dists <= MAPPATURA_MATCH_RADIUS_M]:
+            cand = candidates.loc[i]
+            if i in claimed or cand['gruppo_servizio'] not in (gruppo_key, 'altro'):
+                continue
+            score = fuzz.token_set_ratio(_norm_name(row['nome']), _norm_name(cand['name']))
+            if pm is not None:
+                score = max(score, fuzz.token_set_ratio(_norm_name(row['mymaps']), _norm_name(cand['name'])))
+            unnamed = cand['name'] == cand['amenity_type'] or cand['name'] in generic_names
+            if score >= MAPPATURA_NAME_THRESHOLD:
+                pairs.append((score, r, i, f'nome {score:.0f}%'))
+            elif dists[i] <= MAPPATURA_TYPE_RADIUS_M and unnamed and (cand['icon_name'], cand['sub_type']) == (row_icon, row_sub_type):
+                pairs.append((MAPPATURA_NAME_THRESHOLD, r, i, f'stesso tipo, {dists[i]:.0f}m'))
+            elif (dists[i] <= MAPPATURA_CLOSE_RADIUS_M and score >= MAPPATURA_CLOSE_NAME_THRESHOLD
+                  and cand['gruppo_servizio'] == gruppo_key):
+                pairs.append((score, r, i, f'nome {score:.0f}% a {dists[i]:.0f}m'))
+    for score, r, i, how in sorted(pairs, key=lambda t: -t[0]):
+        if r in match or i in claimed:
+            continue
+        match[r] = (i, how)
+        claimed.add(i)
+
+    new_records = []
+    for r, (row, pm, lon, lat) in enumerate(resolved):
+        gruppo_label = row['gruppo']
+        gruppo_key = GRUPPI_SERVIZIO[gruppo_label][0]
+        nome = row['nome']
+        stats['n_rows'] += 1
+        match_idx, how = match.get(r, (None, ''))
+
+        if lon is None and match_idx is not None:
+            lon, lat = gdf_wgs84.at[match_idx, 'geometry'].x, gdf_wgs84.at[match_idx, 'geometry'].y
+
+        foto_url = ''
+        if pm is not None and pm['foto']:
+            foto_url = download_mymaps_photo(pm['foto'][0])
+            if foto_url:
+                stats['n_photos'] += 1
+        descrizione = pm['descrizione'] if pm is not None else ''
+
+        report_row = {'gruppo': gruppo_label, 'n': row['n'], 'nome': nome,
+                      'posizione': pos_src[r] or ('OSM' if lon is not None else ''),
+                      'osm_id': '', 'esito': '', 'note': row['note']}
+
+        if lon is None:
+            report_row['esito'] = 'non localizzato'
+            stats['rows'].append(report_row)
+            continue
+
+        geom_wgs84 = Point(lon, lat)
+        if match_idx is not None:
+            stats['n_matched'] += 1
+            for gdf in (gdf_utm, gdf_wgs84):
+                gdf.at[match_idx, 'name'] = nome
+                gdf.at[match_idx, 'gruppo_servizio'] = gruppo_key
+                gdf.at[match_idx, 'mappatura_n'] = int(row['n'])
+                if descrizione:
+                    gdf.at[match_idx, 'descrizione'] = descrizione
+                # Circoscrizione-curated photo wins over OSM/Wikidata stock ones.
+                if foto_url:
+                    gdf.at[match_idx, 'image_url'] = foto_url
+            if pos_src[r] in ('My Maps', 'OSM'):
+                gdf_wgs84.at[match_idx, 'geometry'] = geom_wgs84
+                gdf_utm.at[match_idx, 'geometry'] = gpd.GeoSeries([geom_wgs84], crs=WGS84_CRS).to_crs(TARGET_CRS).iloc[0]
+            report_row['osm_id'] = gdf_utm.at[match_idx, 'osm_id'] or ''
+            report_row['esito'] = f"unito a PoI esistente ({how})"
+        else:
+            category, icon, sub_type, amenity_type = classify_mappatura_poi(nome, gruppo_label)
+            new_records.append({
+                'id': f'mappatura_{gruppo_key}_{row["n"]}',
+                'osm_id': '' if row['osm_id'] == MAPPATURA_FORCE_NEW else row['osm_id'],
+                'name': nome,
+                'category': category,
+                'sub_type': sub_type,
+                'osm_tag': f'mappatura={gruppo_key}',
+                'icon_name': icon,
+                'amenity_type': amenity_type,
+                'social_function': SOCIAL_FUNCTION_BY_CATEGORY[category],
+                'image_url': foto_url,
+                'indirizzo': '',
+                'orari_apertura': '',
+                'contatti': '',
+                'sito_web': '',
+                'accessibilita_disabili': '',
+                'source': 'mappatura',
+                'wikidata_id': osm_elements.get(row['osm_id'], {}).get('t', {}).get('wikidata', ''),
+                'wikipedia_title': '',
+                'accesso_pubblico': True,
+                'offre_asporto': gruppo_key == 'ristorazione',
+                'solo_riferimento': False,
+                'gruppo_servizio': gruppo_key,
+                'mappatura_n': int(row['n']),
+                'descrizione': descrizione,
+                'geometry': geom_wgs84,
+            })
+            stats['n_new'] += 1
+            has_osm = row['osm_id'] and row['osm_id'] != MAPPATURA_FORCE_NEW
+            report_row['osm_id'] = row['osm_id'] if has_osm else ''
+            report_row['esito'] = 'nuovo PoI' + ('' if has_osm else ' (assente in OSM)')
+        stats['rows'].append(report_row)
+
+    stats['unused_placemarks'] = [
+        (pm['folder'], name) for name, pm in placemarks.items() if name not in used_placemarks
+    ]
+
+    for col in ('gruppo_servizio', 'mappatura_n', 'descrizione'):
+        gdf_wgs84[col] = gdf_utm[col].values
+    if new_records:
+        new_wgs84 = gpd.GeoDataFrame(new_records, crs=WGS84_CRS)
+        new_utm = new_wgs84.to_crs(TARGET_CRS)
+        gdf_utm = gpd.GeoDataFrame(pd.concat([gdf_utm, new_utm], ignore_index=True), geometry='geometry', crs=TARGET_CRS)
+        gdf_wgs84 = gpd.GeoDataFrame(pd.concat([gdf_wgs84, new_wgs84], ignore_index=True), geometry='geometry', crs=WGS84_CRS)
+
+    n_unlocated = sum(1 for r in stats['rows'] if r['esito'] == 'non localizzato')
+    print(f"    Mappatura: {stats['n_rows']} rows -> {stats['n_matched']} attached to existing PoIs, "
+          f"{stats['n_new']} new PoIs, {n_unlocated} without a position; {stats['n_photos']} photos; "
+          f"{len(stats['unused_placemarks'])} My Maps placemarks not referenced.")
+    return gdf_utm, gdf_wgs84, stats
 
 
 # --- Wikidata enrichment -----------------------------------------------------
@@ -1650,17 +2183,28 @@ IMAGE_CHECK_HEADERS = {'User-Agent': WIKIDATA_HEADERS['User-Agent']}
 
 def _image_url_is_reachable(url):
     """HEAD-check an image URL (falling back to a ranged GET if HEAD isn't allowed)."""
+    import time
+
+    if url.startswith('./'):
+        # Re-hosted photo (see download_mymaps_photo), served from public/.
+        return os.path.exists(os.path.join('../public', url[2:]))
     try:
-        resp = requests.head(url, headers=IMAGE_CHECK_HEADERS, timeout=6, allow_redirects=True)
-        if resp.status_code == 200:
-            return True
-        if resp.status_code in (403, 405):
-            # Some hosts (e.g. Wikimedia Commons' Special:FilePath redirects)
-            # reject HEAD; a small ranged GET avoids downloading the full image.
-            resp = requests.get(url, headers=IMAGE_CHECK_HEADERS, timeout=6,
-                                 stream=True, allow_redirects=True)
-            return resp.status_code == 200
-        return False
+        # Wikimedia Commons rate-limits bursts of checks with HTTP 429
+        # (2026-10-14: valid Commons photos were being cleared as "broken").
+        # Back off and retry; if it's still throttling, the link can't be
+        # judged, so keep it rather than drop a probably-fine photo.
+        for wait in (2, 5, 10, None):
+            resp = requests.head(url, headers=IMAGE_CHECK_HEADERS, timeout=6, allow_redirects=True)
+            if resp.status_code in (403, 405):
+                # Some hosts (e.g. Wikimedia Commons' Special:FilePath redirects)
+                # reject HEAD; a small ranged GET avoids downloading the full image.
+                resp = requests.get(url, headers=IMAGE_CHECK_HEADERS, timeout=6,
+                                    stream=True, allow_redirects=True)
+            if resp.status_code != 429:
+                return resp.status_code == 200
+            if wait is None:
+                return True
+            time.sleep(wait)
     except Exception:
         return False
 
@@ -2304,6 +2848,14 @@ def export_results(gdf_hex_utm, gdf_boundary_utm, gdf_pois_wgs84):
     gdf_boundary_wgs84.to_file(BOUNDARY_OUTPUT, driver="GeoJSON")
 
     print("--> Exporting", POIS_OUTPUT)
+    # A concat with an empty frame (e.g. no MANUAL_POIS) turns these bool
+    # columns into dtype object, which the GeoJSON writer serializes as the
+    # strings "True"/"False" -- and "False" is truthy in the frontend
+    # (2026-10-14: every PoI popup showed "Solo riferimento").
+    gdf_pois_wgs84 = gdf_pois_wgs84.copy()
+    for col in ('solo_riferimento', 'accesso_pubblico', 'offre_asporto'):
+        if col in gdf_pois_wgs84.columns:
+            gdf_pois_wgs84[col] = gdf_pois_wgs84[col].map(lambda v: str(v).strip().lower() == 'true').astype(bool)
     gdf_pois_wgs84.to_file(POIS_OUTPUT, driver="GeoJSON")
 
     print("--> All exports completed successfully!")
@@ -2318,7 +2870,8 @@ def write_report(path, stats, gdf_pois_wgs84):
     image_check_stats = stats['image_check']
     manual_count = stats['manual_count']
     n_private_sport_removed = stats['n_private_sport_removed']
-    total_final = dedup_stats['n_final'] + manual_count - n_private_sport_removed
+    mappatura_stats = stats['mappatura']
+    total_final = len(gdf_pois_wgs84)
 
     lines = []
     lines.append("# Report di Elaborazione — Povo Civic Hub")
@@ -2347,6 +2900,28 @@ def write_report(path, stats, gdf_pois_wgs84):
     )
     lines.append(f"- **Totale PoI finali nel dataset unificato: {total_final}**")
     lines.append("")
+
+    lines.append("## 1b. Mappatura servizi della Circoscrizione (PDF + Google My Maps)")
+    lines.append("")
+    lines.append(
+        f"- Voci in `raw_data/mappatura_povo.csv`: **{mappatura_stats['n_rows']}** -> "
+        f"**{mappatura_stats['n_matched']}** unite a PoI esistenti, **{mappatura_stats['n_new']}** nuovi PoI, "
+        f"**{sum(1 for r in mappatura_stats['rows'] if r['esito'] == 'non localizzato')}** senza posizione"
+    )
+    lines.append(f"- Foto importate dalla My Maps: **{mappatura_stats['n_photos']}**")
+    lines.append("- Allineamento OSM: le voci con `osm_id` vuoto non hanno (ancora) un corrispondente in OpenStreetMap.")
+    lines.append("")
+    lines.append("| Gruppo | N. | Nome | Posizione | osm_id | Esito | Note |")
+    lines.append("|---|---|---|---|---|---|---|")
+    for r in mappatura_stats['rows']:
+        lines.append(f"| {r['gruppo']} | {r['n']} | {r['nome']} | {r['posizione']} | {r['osm_id']} | {r['esito']} | {r['note']} |")
+    lines.append("")
+    if mappatura_stats['unused_placemarks']:
+        lines.append("Segnaposto della My Maps non presenti nella tabella PDF (da valutare):")
+        lines.append("")
+        for folder, name in mappatura_stats['unused_placemarks']:
+            lines.append(f"- {folder}: {name}")
+        lines.append("")
 
     lines.append("## 2. Arricchimento Dati (Wikidata)")
     lines.append("")
@@ -2472,6 +3047,8 @@ def main():
         pd.concat([gdf_pois_wgs84, manual_wgs84], ignore_index=True), geometry='geometry', crs=WGS84_CRS
     )
 
+    gdf_pois_utm, gdf_pois_wgs84, mappatura_stats = apply_mappatura(gdf_pois_utm, gdf_pois_wgs84)
+
     gdf_pois_utm, gdf_pois_wgs84 = add_geouri(gdf_pois_utm, gdf_pois_wgs84)
 
     gdf_pois_utm, gdf_pois_wgs84, n_private_sport_removed = drop_private_sport_facilities(gdf_pois_utm, gdf_pois_wgs84)
@@ -2507,6 +3084,7 @@ def main():
         'enrich': enrich_stats,
         'image_check': image_check_stats,
         'manual_count': len(manual_utm),
+        'mappatura': mappatura_stats,
         'n_private_sport_removed': n_private_sport_removed
     }, gdf_pois_wgs84)
 

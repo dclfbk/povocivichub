@@ -13,7 +13,8 @@ import {
   loadMapStyleDefinition,
   computeBboxFromGeoJSON,
   buildPoiPopupHtml,
-  buildHeatmapRadiusExpression
+  buildHeatmapRadiusExpression,
+  filterPoisForMap
 } from '../config/mapConfig';
 
 const EMPTY_FC = { type: 'FeatureCollection', features: [] };
@@ -30,14 +31,25 @@ function unclusteredCategoryFilter(categories) {
   return ['all', UNCLUSTERED_FILTER_BASE, ['in', ['get', 'category'], ['literal', cats]]];
 }
 
+function updateTerrainButton(button, active) {
+  button.classList.toggle('is-active', active);
+  button.setAttribute('aria-pressed', String(active));
+  const label = active ? 'Disattiva vista 3D orografia' : 'Attiva vista 3D orografia';
+  button.setAttribute('aria-label', label);
+  button.title = label;
+}
+
 export default function Map({
   selectedHex,
   onSelectHex,
   showGrid,
   poiViewMode,
   showTerrain,
+  onToggleTerrain,
   gridMetric,
   activePoiCategories,
+  activeGruppi,
+  focusGruppo,
   heatmapRadius,
   hexValueRange,
   poisData,
@@ -91,6 +103,15 @@ export default function Map({
   // mid-fetch never gets to stamp the ref, so the surviving instance's own
   // run still sees `null` and proceeds instead of wrongly skipping.
   const appliedMapStyleRef = useRef(null);
+  // 3D toggle button living in the map's own control stack (2026-10-09
+  // feedback: under the zoom widget, not in the sidebar). Refs because the
+  // control is created once at mount.
+  const terrainButtonRef = useRef(null);
+  const showTerrainRef = useRef(showTerrain);
+  const onToggleTerrainRef = useRef(onToggleTerrain);
+  useEffect(() => {
+    onToggleTerrainRef.current = onToggleTerrain;
+  }, [onToggleTerrain]);
   const didInitTerrainRef = useRef(false);
   const onViewStateChangeRef = useRef(onViewStateChange);
   useEffect(() => {
@@ -104,10 +125,10 @@ export default function Map({
   // Latest prop values, kept in refs so the layer-(re)creation logic below
   // (shared between the initial mount and every basemap-style switch) always
   // reads current state instead of whatever was captured at mount time.
-  const stateRef = useRef({ showGrid, poiViewMode, gridMetric, activePoiCategories, showTerrain, heatmapRadius, hexValueRange });
+  const stateRef = useRef({ showGrid, poiViewMode, gridMetric, activePoiCategories, activeGruppi, showTerrain, heatmapRadius, hexValueRange });
   useEffect(() => {
-    stateRef.current = { showGrid, poiViewMode, gridMetric, activePoiCategories, showTerrain, heatmapRadius, hexValueRange };
-  }, [showGrid, poiViewMode, gridMetric, activePoiCategories, showTerrain, heatmapRadius, hexValueRange]);
+    stateRef.current = { showGrid, poiViewMode, gridMetric, activePoiCategories, activeGruppi, showTerrain, heatmapRadius, hexValueRange };
+  }, [showGrid, poiViewMode, gridMetric, activePoiCategories, activeGruppi, showTerrain, heatmapRadius, hexValueRange]);
 
   useEffect(() => {
     poisDataRef.current = poisData;
@@ -258,7 +279,7 @@ export default function Map({
         'icon-allow-overlap': true,
         'text-field': ['get', 'name'],
         'text-font': ['Noto Sans Regular'],
-        'text-size': ['interpolate', ['linear'], ['zoom'], 14, 0, 16, 11],
+        'text-size': ['interpolate', ['linear'], ['zoom'], 14, 0, 16, 13],
         'text-anchor': 'top',
         'text-offset': [0, 0.6],
         'text-max-width': 8,
@@ -299,7 +320,10 @@ export default function Map({
   // layers -- needed after a basemap switch, since setStyle() resets every
   // layer back to its just-created defaults regardless of current React state.
   const applyCurrentState = (map) => {
-    const { showGrid: sg, poiViewMode: pvm, gridMetric: gm, activePoiCategories: apc, showTerrain: st, heatmapRadius: hr, hexValueRange: hvr } = stateRef.current;
+    const { showGrid: sg, poiViewMode: pvm, gridMetric: gm, activePoiCategories: apc, activeGruppi: ag, showTerrain: st, heatmapRadius: hr, hexValueRange: hvr } = stateRef.current;
+
+    const filteredPois = filterPoisForMap(poisDataRef.current, apc, ag);
+    if (filteredPois) map.getSource('povo-pois-source').setData(filteredPois);
 
     const gridVisibility = sg ? 'visible' : 'none';
     map.setLayoutProperty('povo-grid-fill', 'visibility', gridVisibility);
@@ -366,6 +390,26 @@ export default function Map({
     // clicking it calls resetNorth() (not resetNorthPitch()), so it can't
     // fight with the separate "Vista 3D" pitch toggle.
     map.addControl(new maplibregl.NavigationControl({ visualizePitch: false }), 'top-right');
+    map.addControl({
+      onAdd: () => {
+        const container = document.createElement('div');
+        container.className = 'maplibregl-ctrl maplibregl-ctrl-group';
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'terrain-3d-ctrl';
+        button.textContent = '3D';
+        button.addEventListener('click', () => {
+          if (onToggleTerrainRef.current) onToggleTerrainRef.current(!showTerrainRef.current);
+        });
+        container.appendChild(button);
+        terrainButtonRef.current = button;
+        updateTerrainButton(button, showTerrainRef.current);
+        return container;
+      },
+      onRemove: () => {
+        terrainButtonRef.current = null;
+      }
+    }, 'top-right');
     map.addControl(new maplibregl.ScaleControl({ unit: 'metric' }), 'bottom-right');
 
     // Lazily draw and register a symbol image the first time a given
@@ -520,7 +564,7 @@ export default function Map({
         const props = feature.properties;
         const coords = feature.geometry.coordinates.slice();
 
-        new maplibregl.Popup({ closeButton: true, offset: 12, maxWidth: '320px' })
+        new maplibregl.Popup({ closeButton: true, offset: 12, maxWidth: 'min(24rem, 90vw)' })
           .setLngLat(coords)
           .setHTML(buildPoiPopupHtml(props))
           .addTo(map);
@@ -636,6 +680,33 @@ export default function Map({
     map.setPaintProperty('poi-heatmap', 'heatmap-radius', buildHeatmapRadiusExpression(heatmapRadius));
   }, [heatmapRadius, loaded]);
 
+  // Category-group filter (sidebar "Categorie"): swap the source's data so
+  // clusters/heatmap only count what's selected, not just hide icons.
+  useEffect(() => {
+    const map = mapRef.current;
+    const src = map && loaded ? map.getSource('povo-pois-source') : null;
+    const filtered = filterPoisForMap(poisData, activePoiCategories, activeGruppi);
+    if (src && filtered) src.setData(filtered);
+  }, [poisData, activePoiCategories, activeGruppi, loaded]);
+
+  // "Mostra solo questa categoria": frame every visible pin of that group
+  // (2026-10-09 feedback -- picking "Aree picnic" didn't reveal where they
+  // were without opening each row).
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !loaded || !focusGruppo || !poisData) return;
+    const features = filterPoisForMap(poisData, activePoiCategories, [focusGruppo.key]).features;
+    if (features.length === 0) return;
+    const bounds = new maplibregl.LngLatBounds();
+    features.forEach((f) => bounds.extend(f.geometry.coordinates));
+    map.fitBounds(bounds, { padding: 60, maxZoom: 16, duration: 900 });
+  }, [focusGruppo, loaded]);
+
+  useEffect(() => {
+    showTerrainRef.current = showTerrain;
+    if (terrainButtonRef.current) updateTerrainButton(terrainButtonRef.current, showTerrain);
+  }, [showTerrain]);
+
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !loaded) return;
@@ -739,7 +810,7 @@ export default function Map({
     map.flyTo({ center: [lng, lat], zoom: Math.max(map.getZoom(), 17), duration: 1200 });
 
     const openPopup = () => {
-      new maplibregl.Popup({ closeButton: true, offset: 12, maxWidth: '320px' })
+      new maplibregl.Popup({ closeButton: true, offset: 12, maxWidth: 'min(24rem, 90vw)' })
         .setLngLat([lng, lat])
         .setHTML(buildPoiPopupHtml(flyToTarget))
         .addTo(map);

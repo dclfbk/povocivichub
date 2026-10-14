@@ -1,15 +1,18 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import Map from './components/Map';
-import Sidebar from './components/Sidebar';
+import Sidebar, { TEXT_SCALES } from './components/Sidebar';
 import AboutModal from './components/AboutModal';
 import CategoryTablesModal from './components/CategoryTablesModal';
 import CookieConsent from './components/CookieConsent';
-import { Menu } from 'lucide-react';
+import { PanelLeftOpen } from 'lucide-react';
 import { parseUrlState, buildUrlSearch } from './utils/urlState';
-import { DEFAULT_HEATMAP_RADIUS, aggregateHexScoresInBounds } from './config/mapConfig';
+import { DEFAULT_HEATMAP_RADIUS, ALL_GRUPPI, aggregateHexScoresInBounds } from './config/mapConfig';
 
 const INTRO_SEEN_KEY = 'povoCivicHub_introSeen';
 const COOKIE_CONSENT_KEY = 'povoCivicHub_cookieConsent';
+const TEXT_SCALE_KEY = 'povoCivicHub_textScale';
+
+const isMobileViewport = () => window.matchMedia && !window.matchMedia('(min-width: 768px)').matches;
 
 export default function App() {
   // Parsed once on first render -- everything visible on screen (camera,
@@ -41,12 +44,36 @@ export default function App() {
   });
   const [flyToTarget, setFlyToTarget] = useState(null);
 
+  // Text size (2026-10-09 feedback: alta leggibilità) -- index into
+  // TEXT_SCALES, applied as the root font size so every rem-based size
+  // scales with it; remembered per browser.
+  const [textScale, setTextScale] = useState(() => {
+    try {
+      const saved = Number(localStorage.getItem(TEXT_SCALE_KEY));
+      return TEXT_SCALES[saved] ? saved : 0;
+    } catch {
+      return 0;
+    }
+  });
+  useEffect(() => {
+    document.documentElement.style.fontSize = TEXT_SCALES[textScale].rootSize;
+    try {
+      localStorage.setItem(TEXT_SCALE_KEY, String(textScale));
+    } catch {
+      // localStorage unavailable -- the size just won't be remembered.
+    }
+  }, [textScale]);
+
   // Layers default to whatever the URL says, falling back to off/2D.
   const [showGrid, setShowGrid] = useState(initialUrlState.showGrid);
   const [poiViewMode, setPoiViewMode] = useState(initialUrlState.poiViewMode); // 'none' | 'icons' | 'heatmap'
   const [showTerrain, setShowTerrain] = useState(initialUrlState.showTerrain);
   const [gridMetric, setGridMetric] = useState(initialUrlState.gridMetric);
   const [activePoiCategories, setActivePoiCategories] = useState(initialUrlState.activePoiCategories);
+  const [activeGruppi, setActiveGruppi] = useState(initialUrlState.activeGruppi);
+  // { key, _t } -- bumped by "mostra solo" so the map re-frames that group
+  // even when it's picked twice in a row.
+  const [focusGruppo, setFocusGruppo] = useState(null);
   const [mapStyle, setMapStyle] = useState(initialUrlState.mapStyle);
   const [heatmapRadius, setHeatmapRadius] = useState(DEFAULT_HEATMAP_RADIUS);
   // Range filter over the current hex legend metric's [0,1] domain
@@ -119,11 +146,42 @@ export default function App() {
       showGrid,
       gridMetric,
       activePoiCategories,
+      activeGruppi,
       mapStyle,
       selectedHexId: (selectedHex && selectedHex.h3_id) || null
     });
     window.history.replaceState(null, '', `${window.location.pathname}?${qs}`);
-  }, [viewState, showTerrain, poiViewMode, showGrid, gridMetric, activePoiCategories, mapStyle, selectedHex]);
+  }, [viewState, showTerrain, poiViewMode, showGrid, gridMetric, activePoiCategories, activeGruppi, mapStyle, selectedHex]);
+
+  const gruppiCounts = useMemo(() => {
+    const counts = {};
+    ((poisData && poisData.features) || []).forEach((f) => {
+      const key = f.properties.gruppo_servizio || 'altro';
+      counts[key] = (counts[key] || 0) + 1;
+    });
+    return counts;
+  }, [poisData]);
+
+  // Picking a group only makes sense if pins are on screen -- the default
+  // view mode is 'none' (2026-10-09 feedback: the group filter must show
+  // where things are), so switch to icons whenever the selection changes.
+  const handleToggleGruppo = (key, isActive) => {
+    setActiveGruppi((prev) => (isActive ? [...prev, key] : prev.filter((g) => g !== key)));
+    if (isActive) setPoiViewMode('icons');
+  };
+
+  const handleSetAllGruppi = (isActive) => {
+    setActiveGruppi(isActive ? ALL_GRUPPI : []);
+    if (isActive) setPoiViewMode('icons');
+  };
+
+  const handleFocusGruppo = (key) => {
+    setActiveGruppi([key]);
+    setPoiViewMode('icons');
+    setFocusGruppo({ key, _t: Date.now() });
+    // On phones the sidebar covers the whole map -- close it so the result is visible.
+    if (isMobileViewport()) setIsSidebarOpen(false);
+  };
 
   const handleTogglePoiCategory = (category, isActive) => {
     setActivePoiCategories((prev) =>
@@ -178,10 +236,13 @@ export default function App() {
   // Row click in the PoI table: close the table, switch to icon view so the
   // point is actually visible, and fly the map to it (Map.jsx also opens its
   // popup once centered).
+  // Also used by the sidebar's category lists / search results. On phones the
+  // panel would hide the result, so it's closed there.
   const handleSelectPoiFromTable = (poi) => {
     setIsTablesOpen(false);
     setPoiViewMode('icons');
     setFlyToTarget({ ...poi, _t: Date.now() });
+    if (isMobileViewport()) setIsSidebarOpen(false);
   };
 
   return (
@@ -194,19 +255,19 @@ export default function App() {
       {!isSidebarOpen && (
         <button
           onClick={() => setIsSidebarOpen(true)}
-          className="absolute top-4 left-4 z-30 p-3 bg-slate-900/90 text-white rounded-xl border border-slate-700 shadow-xl backdrop-blur-md"
-          aria-label="Apri la barra laterale"
+          className="absolute z-30 bottom-6 left-1/2 -translate-x-1/2 md:bottom-auto md:translate-x-0 md:top-4 md:left-4 flex items-center gap-2 px-4 py-3 bg-slate-900/95 text-white text-base font-semibold rounded-xl border border-slate-600 shadow-xl backdrop-blur-md"
+          aria-label="Apri il pannello con categorie ed elenco dei luoghi"
         >
-          <Menu className="w-5 h-5" />
+          <PanelLeftOpen className="w-5 h-5" /> Categorie e luoghi
         </button>
       )}
 
-      {/* Sidebar Panel -- fixed/overlay on mobile so it never squeezes the
-          map's flex-col sibling down to zero height (2026-07-29 bug: sidebar
-          defaults open, and h-full on both stacked flex-col children left the
-          map with no space, so it never rendered on phones). On md+ it goes
-          back to a normal flex item next to the map. */}
-      <div className={`${isSidebarOpen ? 'flex' : 'hidden'} fixed md:static inset-0 h-full w-full md:w-auto shrink-0 z-30 md:z-20`}>
+      {/* Sidebar Panel -- on phones a bottom sheet over the lower part of
+          the map (2026-10-09 feedback: ottimizzazione per dispositivi mobili;
+          previously a full-screen overlay that hid the map entirely). Fixed,
+          not a flex child, so it never squeezes the map to zero height
+          (2026-07-29 bug). On md+ it's a normal flex item next to the map. */}
+      <div className={`${isSidebarOpen ? 'flex' : 'hidden'} fixed md:static inset-x-0 bottom-0 h-[60vh] md:h-full w-full md:w-auto shrink-0 z-30 md:z-20 rounded-t-2xl md:rounded-none overflow-hidden shadow-[0_-8px_30px_rgba(0,0,0,0.5)] md:shadow-none`}>
         <Sidebar
           selectedHex={selectedHex}
           onResetSelection={() => setSelectedHex(null)}
@@ -215,12 +276,15 @@ export default function App() {
           onToggleGrid={setShowGrid}
           poiViewMode={poiViewMode}
           onChangePoiViewMode={setPoiViewMode}
-          showTerrain={showTerrain}
-          onToggleTerrain={setShowTerrain}
           gridMetric={gridMetric}
           onChangeGridMetric={setGridMetric}
           activePoiCategories={activePoiCategories}
           onTogglePoiCategory={handleTogglePoiCategory}
+          activeGruppi={activeGruppi}
+          gruppiCounts={gruppiCounts}
+          onToggleGruppo={handleToggleGruppo}
+          onSetAllGruppi={handleSetAllGruppi}
+          onFocusGruppo={handleFocusGruppo}
           heatmapRadius={heatmapRadius}
           onChangeHeatmapRadius={setHeatmapRadius}
           hexValueRange={hexValueRange}
@@ -236,6 +300,10 @@ export default function App() {
           mapStyle={mapStyle}
           onChangeMapStyle={setMapStyle}
           mapExtentHexStats={mapExtentHexStats}
+          poisData={poisData}
+          onSelectPoi={handleSelectPoiFromTable}
+          textScale={textScale}
+          onChangeTextScale={setTextScale}
         />
       </div>
 
@@ -247,8 +315,11 @@ export default function App() {
           showGrid={showGrid}
           poiViewMode={poiViewMode}
           showTerrain={showTerrain}
+          onToggleTerrain={setShowTerrain}
           gridMetric={gridMetric}
           activePoiCategories={activePoiCategories}
+          activeGruppi={activeGruppi}
+          focusGruppo={focusGruppo}
           heatmapRadius={heatmapRadius}
           hexValueRange={hexValueRange}
           poisData={poisData}

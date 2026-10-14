@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { X, List, ChevronLeft, ChevronRight, ChevronUp, ChevronDown, ChevronsUpDown, MapPin, Globe, Lock, Download } from 'lucide-react';
-import { ALL_POI_CATEGORIES, CATEGORY_STYLES } from '../config/mapConfig';
+import { ALL_POI_CATEGORIES, CATEGORY_STYLES, ALL_GRUPPI, GRUPPI_SERVIZIO } from '../config/mapConfig';
 
 const PAGE_SIZE = 20;
 
@@ -9,8 +9,11 @@ const PAGE_SIZE = 20;
 // dropdown (2026-07-25 feedback: filters should live in the column headers).
 const COLUMNS = [
   { key: 'name', label: 'Nome', type: 'text', sortable: true },
-  { key: 'category', label: 'Categoria', type: 'select', sortable: true },
-  { key: 'categoria_secondaria', label: 'Categoria Secondaria', type: 'select', sortable: true },
+  // The circoscrizione's own grouping (2026-10-09 feedback); the
+  // residenti/pendolari/... axis behind the indicators is "Vocazione".
+  { key: 'gruppo_servizio', label: 'Categoria', type: 'select', sortable: true },
+  { key: 'category', label: 'Vocazione', type: 'select', sortable: true },
+  { key: 'categoria_secondaria', label: 'Vocazione Secondaria', type: 'select', sortable: true },
   { key: 'amenity_type', label: 'Tipo di Servizio', type: 'select', sortable: true },
   { key: 'accesso_pubblico', label: 'Accesso', type: 'select', sortable: true },
   { key: 'indirizzo', label: 'Indirizzo', type: 'text', sortable: true },
@@ -18,7 +21,7 @@ const COLUMNS = [
 ];
 
 export default function CategoryTablesModal({ isOpen, onClose, poisData, onSelectPoi }) {
-  const [columnFilters, setColumnFilters] = useState({ name: '', category: 'all', categoria_secondaria: 'all', amenity_type: 'all', accesso_pubblico: 'all', indirizzo: '' });
+  const [columnFilters, setColumnFilters] = useState({ name: '', gruppo_servizio: 'all', category: 'all', categoria_secondaria: 'all', amenity_type: 'all', accesso_pubblico: 'all', indirizzo: '' });
   const [sort, setSort] = useState({ key: 'name', direction: 'asc' });
   const [page, setPage] = useState(1);
 
@@ -56,6 +59,7 @@ export default function CategoryTablesModal({ isOpen, onClose, poisData, onSelec
     const nameQ = columnFilters.name.trim().toLowerCase();
     const indirizzoQ = columnFilters.indirizzo.trim().toLowerCase();
     return rows.filter((row) => {
+      if (exclude !== 'gruppo_servizio' && columnFilters.gruppo_servizio !== 'all' && (row.gruppo_servizio || 'altro') !== columnFilters.gruppo_servizio) return false;
       if (exclude !== 'category' && columnFilters.category !== 'all' && row.category !== columnFilters.category) return false;
       if (exclude !== 'categoria_secondaria' && columnFilters.categoria_secondaria !== 'all') {
         const secondary = (row.categoria_secondaria || '').split(',').filter(Boolean);
@@ -78,6 +82,11 @@ export default function CategoryTablesModal({ isOpen, onClose, poisData, onSelec
   const categoryOptions = useMemo(() => {
     const present = new Set(applyFiltersExcept(allRows, 'category').map((r) => r.category));
     return ALL_POI_CATEGORIES.filter((cat) => cat === columnFilters.category || present.has(cat));
+  }, [allRows, columnFilters]);
+
+  const gruppoOptions = useMemo(() => {
+    const present = new Set(applyFiltersExcept(allRows, 'gruppo_servizio').map((r) => r.gruppo_servizio || 'altro'));
+    return ALL_GRUPPI.filter((g) => g === columnFilters.gruppo_servizio || present.has(g));
   }, [allRows, columnFilters]);
 
   const categoriaSecondariaOptions = useMemo(() => {
@@ -116,6 +125,10 @@ export default function CategoryTablesModal({ isOpen, onClose, poisData, onSelec
         const bv = typeof b.icc_score === 'number' ? b.icc_score : -Infinity;
         return (av - bv) * dir;
       }
+      if (key === 'gruppo_servizio') {
+        const label = (r) => (GRUPPI_SERVIZIO[r.gruppo_servizio || 'altro'] || {}).label || '';
+        return label(a).localeCompare(label(b), 'it') * dir;
+      }
       if (key === 'accesso_pubblico') {
         return ((a.accesso_pubblico !== false) - (b.accesso_pubblico !== false)) * dir;
       }
@@ -147,6 +160,7 @@ export default function CategoryTablesModal({ isOpen, onClose, poisData, onSelec
 
   const handleDownloadCsv = () => {
     const rowValue = (row, col) => {
+      if (col.key === 'gruppo_servizio') return (GRUPPI_SERVIZIO[row.gruppo_servizio || 'altro'] || {}).label || '';
       if (col.key === 'category') return (CATEGORY_STYLES[row.category] || {}).label || row.category || '';
       if (col.key === 'categoria_secondaria') {
         return (row.categoria_secondaria || '').split(',').filter(Boolean)
@@ -201,22 +215,23 @@ export default function CategoryTablesModal({ isOpen, onClose, poisData, onSelec
           </button>
         </div>
 
-        <div className="px-5 py-2.5 text-[11px] text-slate-400 border-b border-slate-800/60 shrink-0 space-y-1">
+        <div className="px-5 py-2.5 text-sm text-slate-400 border-b border-slate-800/60 shrink-0 space-y-1">
           <div>
-            I PoI di <span className="font-semibold" style={{ color: CATEGORY_STYLES.cross_civic.color }}>Luoghi Pubblici</span> sono
-            i "terzi luoghi" che uniscono le altre categorie. Clicca su una riga per vederla sulla mappa.
+            La <span className="font-semibold text-slate-300">Categoria</span> segue la mappatura dei servizi della Circoscrizione.
+            Clicca su una riga per vederla sulla mappa.
           </div>
           <div>
-            La colonna <span className="font-semibold text-slate-300">Categoria Secondaria</span> mostra le altre categorie a cui un PoI
-            contribuisce comunque nel calcolo (es. un campo da calcio ad accesso pubblico &egrave; classificato "Residenti" ma interessa anche
-            Pendolari e Occasionali). La colonna <span className="font-semibold text-slate-300">Accesso</span> indica invece se il luogo &egrave;
-            liberamente utilizzabile da chiunque, a prescindere dalla categoria.
+            <span className="font-semibold text-slate-300">Vocazione</span> e <span className="font-semibold text-slate-300">Vocazione Secondaria</span> sono
+            usate per gli indicatori degli esagoni: i PoI di <span className="font-semibold" style={{ color: CATEGORY_STYLES.cross_civic.color }}>Luoghi Pubblici</span> sono
+            i "terzi luoghi" che uniscono le altre vocazioni; la Vocazione Secondaria indica a quali altre un PoI contribuisce comunque nel calcolo (es. un campo
+            da calcio ad accesso pubblico &egrave; "Residenti" ma interessa anche Pendolari e Occasionali). La colonna <span className="font-semibold text-slate-300">Accesso</span> indica
+            se il luogo &egrave; liberamente utilizzabile da chiunque.
           </div>
         </div>
 
         {/* Table */}
         <div className="flex-1 overflow-auto">
-          <table className="w-full text-xs">
+          <table className="w-full text-sm">
             <thead className="sticky top-0 bg-slate-900/95 z-10">
               <tr>
                 {COLUMNS.map((col) => {
@@ -249,14 +264,26 @@ export default function CategoryTablesModal({ isOpen, onClose, poisData, onSelec
                     value={columnFilters.name}
                     onChange={(e) => setColumnFilter('name', e.target.value)}
                     placeholder="Filtra..."
-                    className="w-full text-[11px] font-normal bg-slate-800/70 border border-slate-700 rounded-md px-2 py-1 text-slate-200 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                    className="w-full text-sm font-normal bg-slate-800/70 border border-slate-700 rounded-md px-2 py-1 text-slate-200 placeholder:text-slate-400 focus:outline-none focus:ring-1 focus:ring-indigo-500"
                   />
+                </th>
+                <th className="px-4 pb-2">
+                  <select
+                    value={columnFilters.gruppo_servizio}
+                    onChange={(e) => setColumnFilter('gruppo_servizio', e.target.value)}
+                    className="w-full text-sm font-normal bg-slate-800/70 border border-slate-700 rounded-md px-2 py-1 text-slate-200 cursor-pointer focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                  >
+                    <option value="all">Tutte</option>
+                    {gruppoOptions.map((g) => (
+                      <option key={g} value={g}>{GRUPPI_SERVIZIO[g].label}</option>
+                    ))}
+                  </select>
                 </th>
                 <th className="px-4 pb-2">
                   <select
                     value={columnFilters.category}
                     onChange={(e) => setColumnFilter('category', e.target.value)}
-                    className="w-full text-[11px] font-normal bg-slate-800/70 border border-slate-700 rounded-md px-2 py-1 text-slate-200 cursor-pointer focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                    className="w-full text-sm font-normal bg-slate-800/70 border border-slate-700 rounded-md px-2 py-1 text-slate-200 cursor-pointer focus:outline-none focus:ring-1 focus:ring-indigo-500"
                   >
                     <option value="all">Tutte</option>
                     {categoryOptions.map((cat) => (
@@ -268,7 +295,7 @@ export default function CategoryTablesModal({ isOpen, onClose, poisData, onSelec
                   <select
                     value={columnFilters.categoria_secondaria}
                     onChange={(e) => setColumnFilter('categoria_secondaria', e.target.value)}
-                    className="w-full text-[11px] font-normal bg-slate-800/70 border border-slate-700 rounded-md px-2 py-1 text-slate-200 cursor-pointer focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                    className="w-full text-sm font-normal bg-slate-800/70 border border-slate-700 rounded-md px-2 py-1 text-slate-200 cursor-pointer focus:outline-none focus:ring-1 focus:ring-indigo-500"
                   >
                     <option value="all">Tutte</option>
                     {categoriaSecondariaOptions.map((cat) => (
@@ -280,7 +307,7 @@ export default function CategoryTablesModal({ isOpen, onClose, poisData, onSelec
                   <select
                     value={columnFilters.amenity_type}
                     onChange={(e) => setColumnFilter('amenity_type', e.target.value)}
-                    className="w-full text-[11px] font-normal bg-slate-800/70 border border-slate-700 rounded-md px-2 py-1 text-slate-200 cursor-pointer focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                    className="w-full text-sm font-normal bg-slate-800/70 border border-slate-700 rounded-md px-2 py-1 text-slate-200 cursor-pointer focus:outline-none focus:ring-1 focus:ring-indigo-500"
                   >
                     <option value="all">Tutti</option>
                     {amenityTypeOptions.map((type) => (
@@ -292,7 +319,7 @@ export default function CategoryTablesModal({ isOpen, onClose, poisData, onSelec
                   <select
                     value={columnFilters.accesso_pubblico}
                     onChange={(e) => setColumnFilter('accesso_pubblico', e.target.value)}
-                    className="w-full text-[11px] font-normal bg-slate-800/70 border border-slate-700 rounded-md px-2 py-1 text-slate-200 cursor-pointer focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                    className="w-full text-sm font-normal bg-slate-800/70 border border-slate-700 rounded-md px-2 py-1 text-slate-200 cursor-pointer focus:outline-none focus:ring-1 focus:ring-indigo-500"
                   >
                     <option value="all">Tutti</option>
                     {accessOptions.showPublic && <option value="true">Pubblico</option>}
@@ -305,7 +332,7 @@ export default function CategoryTablesModal({ isOpen, onClose, poisData, onSelec
                     value={columnFilters.indirizzo}
                     onChange={(e) => setColumnFilter('indirizzo', e.target.value)}
                     placeholder="Filtra..."
-                    className="w-full text-[11px] font-normal bg-slate-800/70 border border-slate-700 rounded-md px-2 py-1 text-slate-200 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                    className="w-full text-sm font-normal bg-slate-800/70 border border-slate-700 rounded-md px-2 py-1 text-slate-200 placeholder:text-slate-400 focus:outline-none focus:ring-1 focus:ring-indigo-500"
                   />
                 </th>
                 <th className="px-4 pb-2"></th>
@@ -315,6 +342,7 @@ export default function CategoryTablesModal({ isOpen, onClose, poisData, onSelec
             <tbody>
               {pageRows.map((row, i) => {
                 const style = CATEGORY_STYLES[row.category] || { label: row.category, color: '#94a3b8' };
+                const gruppo = GRUPPI_SERVIZIO[row.gruppo_servizio || 'altro'];
                 const canFly = typeof row.lng === 'number' && typeof row.lat === 'number';
                 return (
                   <tr
@@ -324,11 +352,16 @@ export default function CategoryTablesModal({ isOpen, onClose, poisData, onSelec
                     title={canFly ? 'Clicca per vedere sulla mappa' : 'Coordinate non disponibili'}
                   >
                     <td className="px-4 py-2 text-slate-200 font-medium">
-                      {row.name || <span className="text-slate-500 italic">senza nome</span>}
+                      {row.name || <span className="text-slate-400 italic">senza nome</span>}
+                    </td>
+                    <td className="px-4 py-2">
+                      <span className="font-semibold whitespace-nowrap" style={{ color: gruppo.color }}>
+                        {gruppo.label}
+                      </span>
                     </td>
                     <td className="px-4 py-2">
                       <span
-                        className="px-1.5 py-0.5 rounded text-[10px] font-semibold whitespace-nowrap"
+                        className="px-1.5 py-0.5 rounded text-xs font-semibold whitespace-nowrap"
                         style={{ backgroundColor: `${style.color}33`, color: style.color }}
                       >
                         {style.label}
@@ -342,7 +375,7 @@ export default function CategoryTablesModal({ isOpen, onClose, poisData, onSelec
                             return (
                               <span
                                 key={cat}
-                                className="px-1.5 py-0.5 rounded text-[10px] font-semibold whitespace-nowrap"
+                                className="px-1.5 py-0.5 rounded text-xs font-semibold whitespace-nowrap"
                                 style={{ backgroundColor: `${secStyle.color}22`, color: secStyle.color, border: `1px solid ${secStyle.color}55` }}
                               >
                                 {secStyle.label}
@@ -357,11 +390,11 @@ export default function CategoryTablesModal({ isOpen, onClose, poisData, onSelec
                     <td className="px-4 py-2 text-slate-400">{row.amenity_type || '—'}</td>
                     <td className="px-4 py-2">
                       {row.accesso_pubblico !== false ? (
-                        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold whitespace-nowrap bg-emerald-500/20 text-emerald-300">
+                        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-xs font-semibold whitespace-nowrap bg-emerald-500/20 text-emerald-300">
                           <Globe className="w-3 h-3" /> Pubblico
                         </span>
                       ) : (
-                        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold whitespace-nowrap bg-slate-700/60 text-slate-400">
+                        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-xs font-semibold whitespace-nowrap bg-slate-700/60 text-slate-400">
                           <Lock className="w-3 h-3" /> Riservato
                         </span>
                       )}
@@ -370,7 +403,7 @@ export default function CategoryTablesModal({ isOpen, onClose, poisData, onSelec
                     <td className="px-4 py-2 text-right text-slate-300 font-mono">
                       {typeof row.icc_score === 'number' ? row.icc_score.toFixed(0) : '—'}
                     </td>
-                    <td className="px-2 py-2 text-slate-500">
+                    <td className="px-2 py-2 text-slate-400">
                       {canFly && <MapPin className="w-3.5 h-3.5" />}
                     </td>
                   </tr>
@@ -378,7 +411,7 @@ export default function CategoryTablesModal({ isOpen, onClose, poisData, onSelec
               })}
               {pageRows.length === 0 && (
                 <tr>
-                  <td colSpan={8} className="px-4 py-8 text-center text-slate-500 italic">
+                  <td colSpan={COLUMNS.length + 1} className="px-4 py-8 text-center text-slate-400 italic">
                     Nessun PoI corrisponde ai filtri.
                   </td>
                 </tr>
@@ -402,7 +435,7 @@ export default function CategoryTablesModal({ isOpen, onClose, poisData, onSelec
               <Download className="w-3.5 h-3.5" /> Scarica CSV
             </button>
             <span
-              className="text-slate-500 italic hidden sm:inline"
+              className="text-slate-400 italic hidden sm:inline"
               title="I dati provengono da OpenStreetMap e sono distribuiti secondo la licenza Open Database License (ODbL)"
             >
               Dati OSM &bull;{' '}

@@ -161,7 +161,7 @@ export default function AboutModal({ isOpen, onClose }) {
                     <div className="font-semibold text-slate-200">{title}</div>
                     <div className="text-slate-400 mt-0.5 text-xs leading-relaxed">{text}</div>
                     <div
-                      className="mt-1 text-[10px] text-indigo-300/70 italic cursor-help w-fit"
+                      className="mt-1 text-xs text-indigo-300/70 italic cursor-help w-fit"
                       title={citeFull}
                     >
                       {cite}

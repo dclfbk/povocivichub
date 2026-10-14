@@ -1,27 +1,33 @@
-import React from 'react';
+import React, { useMemo, useState } from 'react';
 import CategoryStackedBar from './CategoryStackedBar';
 import InfoButton from './InfoButton';
 import {
   MapPin,
   Layers,
   BookOpen,
-  Activity,
   Sparkles,
   RotateCcw,
-  Mountain,
   Hexagon,
   MapPinned,
   EyeOff,
   Flame,
-  List,
   PenTool,
   XCircle,
   Map as MapIcon,
-  PanelLeftClose
+  PanelLeftClose,
+  Crosshair,
+  Menu,
+  ArrowLeft,
+  Search,
+  ChevronDown,
+  ChevronRight,
+  Table
 } from 'lucide-react';
 import {
   CATEGORY_STYLES,
   ALL_POI_CATEGORIES,
+  GRUPPI_SERVIZIO,
+  ALL_GRUPPI,
   GRID_METRICS,
   gridMetricGradientCss,
   MIXED_AREA_COLOR,
@@ -51,12 +57,15 @@ export default function Sidebar({
   onToggleGrid,
   poiViewMode,
   onChangePoiViewMode,
-  showTerrain,
-  onToggleTerrain,
   gridMetric,
   onChangeGridMetric,
   activePoiCategories,
   onTogglePoiCategory,
+  activeGruppi,
+  gruppiCounts,
+  onToggleGruppo,
+  onSetAllGruppi,
+  onFocusGruppo,
   heatmapRadius,
   onChangeHeatmapRadius,
   hexValueRange,
@@ -71,8 +80,49 @@ export default function Sidebar({
   onClearDrawnArea,
   mapStyle,
   onChangeMapStyle,
-  mapExtentHexStats
+  mapExtentHexStats,
+  poisData,
+  onSelectPoi,
+  textScale,
+  onChangeTextScale
 }) {
+  // Two views (2026-10-09 feedback: "spostare l'Elenco punti di interesse nel
+  // menù principale e Livelli & filtri nell'icona menù hamburger"): 'esplora'
+  // is the citizen-facing default (search + categories + their places),
+  // 'analisi' holds every map-analysis tool behind the header's hamburger.
+  const [view, setView] = useState('esplora');
+  const [query, setQuery] = useState('');
+  const [expandedGruppi, setExpandedGruppi] = useState([]);
+
+  const poisByGruppo = useMemo(() => {
+    const groups = {};
+    ((poisData && poisData.features) || []).forEach((f) => {
+      if (!f.geometry || f.geometry.type !== 'Point') return;
+      const p = f.properties || {};
+      const key = p.gruppo_servizio || 'altro';
+      (groups[key] = groups[key] || []).push({ ...p, lng: f.geometry.coordinates[0], lat: f.geometry.coordinates[1] });
+    });
+    // The circoscrizione's own entries first, in their table order; then the rest alphabetically.
+    Object.values(groups).forEach((list) => list.sort((a, b) => {
+      const an = a.mappatura_n ?? Infinity;
+      const bn = b.mappatura_n ?? Infinity;
+      return an !== bn ? an - bn : (a.name || '').localeCompare(b.name || '', 'it');
+    }));
+    return groups;
+  }, [poisData]);
+
+  const searchResults = useMemo(() => {
+    const q = normalizeText(query.trim());
+    if (q.length < 2) return null;
+    return Object.values(poisByGruppo).flat()
+      .filter((p) => normalizeText(`${p.name || ''} ${p.amenity_type || ''} ${p.indirizzo || ''}`).includes(q))
+      .slice(0, 50);
+  }, [query, poisByGruppo]);
+
+  const toggleExpanded = (key) => {
+    setExpandedGruppi((prev) => (prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key]));
+  };
+
   // The Polifunzionalità card reflects whichever context is active, in this
   // priority order (2026-07-26 feedback: "calcolato o sulla base dell'extent
   // della mappa (se non faccio nulla), o selezionando un esagono ... oppure
@@ -113,14 +163,21 @@ export default function Sidebar({
   const mixLevel = getMixLevel(mixIndex);
 
   return (
-    <aside className="w-full md:w-[320px] h-full glass-panel flex flex-col z-20 overflow-y-auto border-r border-slate-800 text-slate-100 shadow-2xl">
+    <aside className="w-full md:w-[22rem] h-full glass-panel flex flex-col z-20 overflow-y-auto border-r border-slate-800 text-slate-100 shadow-2xl">
       {/* App Header */}
-      <header className="p-6 border-b border-slate-800/80 bg-slate-900/60 flex flex-col gap-2">
+      <header className="p-5 border-b border-slate-800/80 bg-slate-900/60 flex flex-col gap-2">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2.5">
-            <div className="p-2 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-xl shadow-lg shadow-indigo-500/25">
-              <Activity className="w-5 h-5 text-white" />
-            </div>
+            {/* TEMPORARY logo (2026-10-14): the Circoscrizione di Povo's coat of
+                arms as published on their Facebook page, pending official files
+                and permission from the circoscrizione. The Trento city brand
+                is reserved to registered Visit Trento partners (login), so it
+                can't be added until they supply it. */}
+            <img
+              src="./loghi/stemma_povo.jpg"
+              alt="Stemma della Circoscrizione di Povo"
+              className="w-11 h-11 rounded-xl bg-white object-contain p-0.5 shadow-lg shrink-0"
+            />
             <div>
               <h1 className="text-xl font-bold tracking-tight bg-clip-text text-transparent bg-gradient-to-r from-white via-indigo-100 to-indigo-300">
                 Povo Civic Hub
@@ -128,46 +185,187 @@ export default function Sidebar({
               <p className="text-xs text-indigo-300/80 font-medium">Mappe di Co-presenza & Polifunzionalità</p>
             </div>
           </div>
-          <div className="flex items-center gap-1">
+          <div className="flex items-center gap-0.5">
             <button
-              onClick={onOpenTables}
-              className="p-2 hover:bg-slate-800 rounded-lg text-slate-400 hover:text-white transition"
-              title="Elenco PoI per categoria"
-              aria-label="Elenco PoI per categoria"
+              onClick={() => setView(view === 'analisi' ? 'esplora' : 'analisi')}
+              className={`p-2.5 rounded-lg transition ${view === 'analisi' ? 'bg-indigo-500/30 text-white' : 'text-slate-300 hover:bg-slate-800 hover:text-white'}`}
+              title="Livelli e filtri"
+              aria-label="Livelli e filtri"
+              aria-pressed={view === 'analisi'}
             >
-              <List className="w-4 h-4" />
+              <Menu className="w-5 h-5" />
             </button>
             <button
               onClick={onOpenAbout}
-              className="p-2 hover:bg-slate-800 rounded-lg text-slate-400 hover:text-white transition"
+              className="p-2.5 hover:bg-slate-800 rounded-lg text-slate-300 hover:text-white transition"
               title="A cosa serve questa mappa?"
               aria-label="A cosa serve questa mappa?"
             >
-              <BookOpen className="w-4 h-4" />
+              <BookOpen className="w-5 h-5" />
             </button>
-            {selectedHex && (
-              <button
-                onClick={onResetSelection}
-                className="p-2 hover:bg-slate-800 rounded-lg text-slate-400 hover:text-white transition"
-                title="Reset Selezione"
-              >
-                <RotateCcw className="w-4 h-4" />
-              </button>
-            )}
             <button
               onClick={onCloseSidebar}
-              className="p-2 hover:bg-slate-800 rounded-lg text-slate-400 hover:text-white transition"
-              title="Nascondi barra laterale"
-              aria-label="Nascondi barra laterale"
+              className="p-2.5 hover:bg-slate-800 rounded-lg text-slate-300 hover:text-white transition"
+              title="Nascondi il pannello"
+              aria-label="Nascondi il pannello"
             >
-              <PanelLeftClose className="w-4 h-4" />
+              <PanelLeftClose className="w-5 h-5" />
             </button>
           </div>
+        </div>
+        {/* Text size (2026-10-09 feedback: accessibilità e alta leggibilità).
+            Scales the root font size, so every rem-based size follows. */}
+        <div className="flex items-center gap-2 text-sm text-slate-300" role="group" aria-label="Dimensione del testo">
+          <span>Testo</span>
+          {TEXT_SCALES.map((scale, i) => (
+            <button
+              key={scale.label}
+              onClick={() => onChangeTextScale(i)}
+              aria-pressed={textScale === i}
+              aria-label={scale.aria}
+              title={scale.aria}
+              className={`min-w-[2.25rem] px-2 py-1 rounded-md border font-semibold transition ${textScale === i ? 'bg-indigo-500/30 border-indigo-400 text-white' : 'border-slate-700 text-slate-300 hover:bg-slate-800'}`}
+              style={{ fontSize: scale.preview }}
+            >
+              A
+            </button>
+          ))}
         </div>
       </header>
 
       {/* Main Content Area */}
-      <div className="p-6 space-y-6 flex-1">
+      <div className="p-5 space-y-5 flex-1">
+        {view === 'esplora' && (
+        <>
+        <div className="relative">
+          <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+          <input
+            type="search"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Cerca un luogo o un servizio…"
+            aria-label="Cerca un luogo o un servizio"
+            className="w-full text-base bg-slate-900/70 border border-slate-600 rounded-xl pl-9 pr-3 py-2.5 text-slate-100 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-400"
+          />
+        </div>
+
+        {searchResults && (
+          <section aria-label="Risultati della ricerca" className="space-y-1">
+            <div className="text-sm text-slate-300">
+              {searchResults.length === 0 ? 'Nessun risultato' : searchResults.length === 1 ? '1 risultato' : `${searchResults.length}${searchResults.length === 50 ? '+' : ''} risultati`}
+            </div>
+            <ul className="space-y-0.5">
+              {searchResults.map((poi) => (
+                <PoiListItem key={poi.id} poi={poi} onSelect={onSelectPoi} showGruppo />
+              ))}
+            </ul>
+          </section>
+        )}
+
+        {/* Categorie di servizio -- the circoscrizione's own grouping
+            (2026-10-09 feedback). Checkbox toggles a group on the map, the
+            crosshair shows only that group and frames it, the chevron lists
+            its places (the former "Elenco punti di interesse", now here). */}
+        {!searchResults && (
+        <section className="glass-card rounded-2xl p-4 border border-slate-700/60 space-y-3">
+          <div className="flex items-center justify-between">
+            <div className="text-xs font-bold text-indigo-400 uppercase tracking-widest flex items-center gap-1.5">
+              <MapPin className="w-3.5 h-3.5" /> Categorie
+            </div>
+            <div className="flex gap-2 text-xs">
+              <button onClick={() => onSetAllGruppi(true)} className="text-slate-300 hover:text-white underline">Tutte</button>
+              <button onClick={() => onSetAllGruppi(false)} className="text-slate-300 hover:text-white underline">Nessuna</button>
+            </div>
+          </div>
+          <ul className="space-y-1">
+            {ALL_GRUPPI.map((key) => {
+              const { label, color, icon: Icon } = GRUPPI_SERVIZIO[key];
+              const count = gruppiCounts[key] || 0;
+              const active = activeGruppi.includes(key);
+              const expanded = expandedGruppi.includes(key);
+              return (
+                <li key={key}>
+                <div className="flex items-center gap-0.5">
+                  <button
+                    onClick={() => toggleExpanded(key)}
+                    disabled={count === 0}
+                    aria-expanded={expanded}
+                    aria-label={`${expanded ? 'Nascondi' : 'Mostra'} l'elenco: ${label}`}
+                    title={`${expanded ? 'Nascondi' : 'Mostra'} l'elenco`}
+                    className="p-1.5 rounded-lg text-slate-300 hover:text-white hover:bg-slate-800 disabled:opacity-30"
+                  >
+                    {expanded ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
+                  </button>
+                  <label className="flex-1 min-w-0 flex items-center gap-2 text-sm px-1.5 py-2 rounded-lg hover:bg-slate-800/60 cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      className="w-4 h-4 rounded cursor-pointer shrink-0"
+                      style={{ accentColor: color }}
+                      checked={active}
+                      onChange={(e) => onToggleGruppo(key, e.target.checked)}
+                    />
+                    <Icon className="w-4 h-4 shrink-0" style={{ color }} />
+                    <span className="text-slate-200 leading-snug">{label}</span>
+                    <span className="ml-auto text-sm text-slate-300 tabular-nums">{count}</span>
+                  </label>
+                  <button
+                    onClick={() => onFocusGruppo(key)}
+                    disabled={count === 0}
+                    className="p-2 rounded-lg text-slate-300 hover:text-white hover:bg-slate-800 disabled:opacity-30 disabled:hover:bg-transparent"
+                    title={`Mostra solo: ${label}`}
+                    aria-label={`Mostra solo ${label} sulla mappa`}
+                  >
+                    <Crosshair className="w-5 h-5" />
+                  </button>
+                </div>
+                {expanded && (
+                  <ul className="ml-7 mt-1 mb-2 pl-2 space-y-0.5 border-l-2" style={{ borderColor: `${color}66` }}>
+                    {(poisByGruppo[key] || []).map((poi) => (
+                      <PoiListItem key={poi.id} poi={poi} onSelect={onSelectPoi} />
+                    ))}
+                  </ul>
+                )}
+                </li>
+              );
+            })}
+          </ul>
+        </section>
+        )}
+
+        <button
+          onClick={onOpenTables}
+          className="w-full flex items-center justify-center gap-2 text-sm font-semibold px-3 py-2.5 rounded-xl bg-slate-800/80 text-slate-200 border border-slate-600 hover:bg-slate-700 transition"
+        >
+          <Table className="w-4 h-4" /> Tabella completa e download CSV
+        </button>
+
+        <button
+          onClick={() => setView('analisi')}
+          className="w-full flex items-center justify-center gap-2 text-sm font-semibold px-3 py-2.5 rounded-xl bg-indigo-500/20 text-indigo-200 border border-indigo-500/40 hover:bg-indigo-500/30 transition"
+        >
+          <Layers className="w-4 h-4" /> Livelli, mappe di calore e analisi
+        </button>
+        </>
+        )}
+
+        {view === 'analisi' && (
+        <>
+        <button
+          onClick={() => setView('esplora')}
+          className="flex items-center gap-2 text-sm font-semibold text-slate-200 hover:text-white px-1 py-1"
+        >
+          <ArrowLeft className="w-4 h-4" /> Torna alle categorie
+        </button>
+
+        {selectedHex && (
+          <button
+            onClick={onResetSelection}
+            className="w-full flex items-center justify-center gap-2 text-sm font-semibold px-3 py-2 rounded-xl bg-slate-800 text-slate-200 border border-slate-600 hover:bg-slate-700 transition"
+          >
+            <RotateCcw className="w-4 h-4" /> Deseleziona l&apos;esagono
+          </button>
+        )}
+
         {/* Background Map Style */}
         <section className="glass-card rounded-2xl p-5 border border-slate-700/60 space-y-2">
           <div className="text-xs font-bold text-indigo-400 uppercase tracking-widest flex items-center gap-1.5">
@@ -203,7 +401,7 @@ export default function Sidebar({
                   <input
                     type="radio"
                     name="poiViewMode"
-                    className="w-3.5 h-3.5 accent-indigo-500 cursor-pointer"
+                    className="w-4 h-4 accent-indigo-500 cursor-pointer"
                     checked={poiViewMode === key}
                     onChange={() => onChangePoiViewMode(key)}
                   />
@@ -215,7 +413,7 @@ export default function Sidebar({
 
             {poiViewMode === 'heatmap' && (
               <div className="space-y-1.5 pl-1">
-                <div className="flex items-center justify-between text-[11px] text-slate-400">
+                <div className="flex items-center justify-between text-sm text-slate-400">
                   <span>Raggio Mappa di Calore</span>
                   <span className="font-mono text-slate-300">{heatmapRadius}px</span>
                 </div>
@@ -232,7 +430,7 @@ export default function Sidebar({
             )}
 
             {poiViewMode === 'icons' && (
-              <div className="grid grid-cols-2 gap-2 pl-1">
+              <div className="grid grid-cols-1 gap-1.5 pl-1">
                 {ALL_POI_CATEGORIES.map((cat) => {
                   const style = CATEGORY_STYLES[cat];
                   const Icon = style.icon;
@@ -240,17 +438,17 @@ export default function Sidebar({
                   return (
                     <label
                       key={cat}
-                      className="flex items-center gap-1.5 text-[11px] px-2 py-1.5 rounded-lg border border-slate-800 bg-slate-900/60 cursor-pointer select-none"
+                      className="flex items-center gap-1.5 text-sm px-2 py-1.5 rounded-lg border border-slate-800 bg-slate-900/60 cursor-pointer select-none"
                     >
                       <input
                         type="checkbox"
-                        className="w-3 h-3 rounded cursor-pointer"
+                        className="w-4 h-4 rounded cursor-pointer"
                         style={{ accentColor: style.color }}
                         checked={active}
                         onChange={(e) => onTogglePoiCategory(cat, e.target.checked)}
                       />
                       <Icon className="w-3 h-3 shrink-0" style={{ color: style.color }} />
-                      <span className="text-slate-300 truncate">{style.label}</span>
+                      <span className="text-slate-300">{style.label}</span>
                     </label>
                   );
                 })}
@@ -277,7 +475,7 @@ export default function Sidebar({
                 {Object.entries(GRID_METRICS).map(([key, cfg]) => (
                   <div
                     key={key}
-                    className="flex items-center gap-2 text-[11px] px-2 py-1.5 rounded-lg border border-slate-800 bg-slate-900/60"
+                    className="flex items-center gap-2 text-sm px-2 py-1.5 rounded-lg border border-slate-800 bg-slate-900/60"
                   >
                     <label className="flex items-center gap-2 flex-1 min-w-0 cursor-pointer select-none">
                       <input
@@ -298,19 +496,19 @@ export default function Sidebar({
                     sit at the very bottom of the sidebar, past several other
                     sections, so it went effectively unnoticed). */}
                 <div className="glass-card rounded-xl p-3 space-y-2 border border-slate-800 mt-2">
-                  <div className="text-[11px] font-semibold text-slate-300 flex items-center justify-between gap-2">
+                  <div className="text-sm font-semibold text-slate-300 flex items-center justify-between gap-2">
                     <span className="truncate">Legenda &bull; {GRID_METRICS[gridMetric].label}</span>
                     <InfoButton title={GRID_METRICS[gridMetric].label}>{GRID_METRICS[gridMetric].info}</InfoButton>
                   </div>
                   {gridMetric === 'dominant' ? (
                     <div className="grid grid-cols-2 gap-1.5 pt-1">
                       {ALL_POI_CATEGORIES.map((cat) => (
-                        <div key={cat} className="flex items-center gap-1.5 text-[10px] text-slate-300">
+                        <div key={cat} className="flex items-center gap-1.5 text-xs text-slate-300">
                           <span className="w-3 h-3 rounded shrink-0" style={{ backgroundColor: CATEGORY_STYLES[cat].color }} />
                           <span className="truncate">{CATEGORY_STYLES[cat].label}</span>
                         </div>
                       ))}
-                      <div className="flex items-center gap-1.5 text-[10px] text-slate-300 col-span-2">
+                      <div className="flex items-center gap-1.5 text-xs text-slate-300 col-span-2">
                         <span className="w-3 h-3 rounded shrink-0" style={{ backgroundColor: MIXED_AREA_COLOR }} />
                         <span>Area Mista (2+ categorie in equilibrio)</span>
                       </div>
@@ -318,7 +516,7 @@ export default function Sidebar({
                   ) : (
                     <>
                       <div className="h-3 w-full rounded-full" style={{ background: gridMetricGradientCss(gridMetric) }} />
-                      <div className="flex justify-between text-[10px] text-slate-400 font-mono">
+                      <div className="flex justify-between text-xs text-slate-400 font-mono">
                         <span>0.0 Basso</span>
                         <span>0.5 Medio</span>
                         <span>1.0 Alto</span>
@@ -331,7 +529,7 @@ export default function Sidebar({
                           index.css for the pointer-events trick that lets
                           each thumb be dragged independently. */}
                       <div className="pt-2 space-y-1.5 border-t border-slate-800 mt-1">
-                        <div className="flex items-center justify-between text-[10px] text-slate-400">
+                        <div className="flex items-center justify-between text-xs text-slate-400">
                           <span>Filtra esagoni per range di valore</span>
                           {(hexValueRange[0] > 0 || hexValueRange[1] < 1) && (
                             <button
@@ -370,7 +568,7 @@ export default function Sidebar({
                             aria-label="Valore massimo"
                           />
                         </div>
-                        <div className="flex justify-between text-[10px] text-slate-400 font-mono">
+                        <div className="flex justify-between text-xs text-slate-400 font-mono">
                           <span>{hexValueRange[0].toFixed(2)}</span>
                           <span>{hexValueRange[1].toFixed(2)}</span>
                         </div>
@@ -380,21 +578,6 @@ export default function Sidebar({
                 </div>
               </div>
             )}
-          </div>
-
-          {/* Toggle: 3D terrain */}
-          <div className="border-t border-slate-800 pt-3">
-            <label className="flex items-center justify-between cursor-pointer select-none">
-              <span className="flex items-center gap-2 text-sm font-semibold text-slate-200">
-                <Mountain className="w-4 h-4 text-slate-400" /> Attiva Vista 3D Orografia
-              </span>
-              <input
-                type="checkbox"
-                className="w-4 h-4 accent-indigo-500 rounded cursor-pointer"
-                checked={showTerrain}
-                onChange={(e) => onToggleTerrain(e.target.checked)}
-              />
-            </label>
           </div>
         </section>
 
@@ -483,7 +666,7 @@ export default function Sidebar({
             </button>
           ) : (
             <div className="space-y-2">
-              <div className="text-[11px] text-slate-400 leading-relaxed">
+              <div className="text-sm text-slate-400 leading-relaxed">
                 Clicca sulla mappa per aggiungere punti, doppio click per chiudere il poligono.
               </div>
               <button
@@ -522,10 +705,16 @@ export default function Sidebar({
             </div>
           )}
         </section>
+        </>
+        )}
       </div>
 
       {/* Footer */}
-      <footer className="p-4 border-t border-slate-800/80 bg-slate-950/80 text-[11px] text-slate-400 text-center">
+      <footer className="p-4 border-t border-slate-800/80 bg-slate-950/80 text-sm text-slate-400 text-center">
+        <div className="flex items-center justify-center gap-2 mb-2 text-slate-300">
+          <img src="./loghi/stemma_povo.jpg" alt="" className="w-7 h-7 rounded bg-white object-contain" />
+          In collaborazione con la Circoscrizione di Povo
+        </div>
         Povo Civic Hub 2026 &bull; napo@fbk &bull;{' '}
         <a
           href="https://github.com/dclfbk/povocivichub"
@@ -556,5 +745,35 @@ export default function Sidebar({
         </div>
       </footer>
     </aside>
+  );
+}
+
+export const TEXT_SCALES = [
+  { label: 'normale', aria: 'Testo normale', preview: '0.8rem', rootSize: '100%' },
+  { label: 'grande', aria: 'Testo grande', preview: '0.95rem', rootSize: '112.5%' },
+  { label: 'molto grande', aria: 'Testo molto grande', preview: '1.1rem', rootSize: '125%' }
+];
+
+// Accent/case-insensitive matching for the search box ("salè" finds "Sale").
+function normalizeText(text) {
+  return text.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+}
+
+function PoiListItem({ poi, onSelect, showGruppo = false }) {
+  const gruppo = GRUPPI_SERVIZIO[poi.gruppo_servizio || 'altro'];
+  return (
+    <li>
+      <button
+        onClick={() => onSelect(poi)}
+        className="w-full text-left px-2 py-1.5 rounded-lg hover:bg-slate-800/70 focus-visible:bg-slate-800/70 transition"
+        title="Mostra sulla mappa"
+      >
+        <span className="block text-sm text-slate-100 leading-snug">{poi.name || 'Punto di interesse'}</span>
+        <span className="block text-xs text-slate-400 leading-snug">
+          {showGruppo && <span style={{ color: gruppo.color }}>{gruppo.label} · </span>}
+          {poi.amenity_type}
+        </span>
+      </button>
+    </li>
   );
 }

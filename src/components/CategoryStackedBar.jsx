@@ -14,7 +14,7 @@ export default function CategoryStackedBar({ title, segments, valueLabel = 'Valo
     <div className="w-full bg-slate-900/40 rounded-xl p-3 border border-slate-700/50 space-y-2">
       <div className="flex items-center justify-between">
         <div className="text-xs font-semibold text-slate-300 uppercase tracking-wider">{title}</div>
-        <div className="text-[11px] text-slate-400 h-4">
+        <div className="text-sm text-slate-400 h-4">
           {hovered ? (
             <span>
               <span className="font-semibold" style={{ color: hovered.color }}>{hovered.label}</span>
@@ -22,7 +22,7 @@ export default function CategoryStackedBar({ title, segments, valueLabel = 'Valo
               {formatValue(hovered.value)} ({hovered.percentage.toFixed(1)}%)
             </span>
           ) : (
-            <span className="text-slate-500">passa il mouse per i dettagli</span>
+            <span className="text-slate-400">passa il mouse per i dettagli</span>
           )}
         </div>
       </div>
@@ -43,7 +43,7 @@ export default function CategoryStackedBar({ title, segments, valueLabel = 'Valo
               title={`${s.label}: ${formatValue(s.value)} (${s.percentage.toFixed(1)}%)`}
             >
               {s.percentage >= 12 && (
-                <span className="text-[10px] font-bold text-slate-950/80 select-none">
+                <span className="text-xs font-bold text-slate-950/80 select-none">
                   {s.percentage.toFixed(0)}%
                 </span>
               )}
@@ -51,7 +51,7 @@ export default function CategoryStackedBar({ title, segments, valueLabel = 'Valo
           ))}
         </div>
       ) : (
-        <div className="h-6 rounded-lg border border-dashed border-slate-700 flex items-center justify-center text-[11px] text-slate-500">
+        <div className="h-6 rounded-lg border border-dashed border-slate-700 flex items-center justify-center text-sm text-slate-400">
           Nessun dato disponibile
         </div>
       )}
@@ -60,7 +60,7 @@ export default function CategoryStackedBar({ title, segments, valueLabel = 'Valo
         {segments.map((s) => (
           <div
             key={s.key}
-            className="flex items-center gap-1.5 text-[10px] text-slate-400 cursor-default"
+            className="flex items-center gap-1.5 text-xs text-slate-400 cursor-default"
             onMouseEnter={() => setHoveredKey(s.key)}
             onMouseLeave={() => setHoveredKey(null)}
           >
@@ -70,8 +70,8 @@ export default function CategoryStackedBar({ title, segments, valueLabel = 'Valo
         ))}
       </div>
 
-      {note && <div className="text-[10px] text-slate-500 leading-relaxed pt-1 border-t border-slate-800">{note}</div>}
-      <div className="text-[10px] text-slate-600">{valueLabel}</div>
+      {note && <div className="text-xs text-slate-400 leading-relaxed pt-1 border-t border-slate-800">{note}</div>}
+      <div className="text-xs text-slate-600">{valueLabel}</div>
     </div>
   );
 }

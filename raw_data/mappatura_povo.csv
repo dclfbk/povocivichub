@@ -1,0 +1,159 @@
+gruppo,n,nome,mymaps,osm_id,coordinate,lat,lon,note
+Cultura e tempo libero,1,Sala Living + Cucina + Prato - Casa Sociale,Sala living - Casa Sociale,,,,,
+Cultura e tempo libero,2,Sala Musica - Casa Sociale,Sala musica - Casa Sociale,,,,,
+Cultura e tempo libero,3,Salone Agorà - Casa Sociale,Salone Agorà - Casa Sociale,,,,,
+Cultura e tempo libero,4,Sala Video Nichelatti presso Centro Civico,Sala video Nichelatti presso il Centro Civico,,,,,
+Cultura e tempo libero,5,Sala Multiuso 2 presso Centro Civico,Sala Multiuso 2 presso Centro civico,,,,,
+Cultura e tempo libero,6,Biblioteca Comunale di Trento - Sede di Povo,Biblioteca Comunale di Trento - Sede di Povo,,,,,
+Cultura e tempo libero,7,Bookcrossing c/o Centro Civico,BookCrossing presso Centro Civico,,,,,
+Cultura e tempo libero,8,Bookcrossing al Parco del Salè,BookCrossing al Parco del Salé,,,,,
+Cultura e tempo libero,9,Anfiteatro all'aperto / Arena,Anfiteatro all'aperto / Arena,,,,,
+Cultura e tempo libero,10,Teatro Concordia,Teatro Concordia,node/1999372436,,,,
+Cultura e tempo libero,11,"Patto di collaborazione ""Memoria di Comunità""",Sede Patto di collaborazione Memoria di comunità,,,,,
+Cultura e tempo libero,12,"Casa Sociale - sede patto di coesione territoriale ""Povo Educa""",Casa Sociale (sede patto coesione territoriale Povo Educa),way/78363071,osm,,,da My Maps (non nel PDF); posizione: edificio Casa Sociale in OSM
+Cultura e tempo libero,13,Sala del silenzio e della meditazione presso il Centro Civico,Sala del silenzio e della meditazione/del culto presso il Centro civico,,,,,da My Maps (non nel PDF); assente in OSM: posizione My Maps
+Aree sportive,1,Palestra Povo - Marzola,Palestra Povo - Marzola,,,,,
+Aree sportive,2,Centro Sportivo Oscar Ceschi - Gabbiolo,Campo da Calcio ViPo Trento,,,,,
+Aree sportive,3,Parco con attrezzature da calisthenics,Attrezzature da calisthenics,,,,,
+Aree sportive,4,Campo da basket di Oltrecastello,Campo da basket di Oltrecastello,,,,,
+Aree sportive,5,Campo da calcio - Oltrecastello,Campo da calcetto - Oltrecastello,,,,,
+Aree sportive,6,Tavolo da ping pong - Oltrecastello,Tavolo da ping pong - Oltrecastello,,,,,
+Aree sportive,7,Campo da volley - Oltrecastello,Campo da volley - Oltrecastello,,,,,
+Aree sportive,8,Campo comunale di Gabbiolo,Campo comunale di Gabbiolo,,,,,
+Aree sportive,9,Campo da calcio - Oratorio di Povo,Campo da calcio - Oratorio di Povo,,,,,
+Aree sportive,10,Palestra GSA,,,,,,posizione sconosciuta: assente in My Maps e OSM
+Aree sportive,11,Campo da calcio - Cimirlo,Campo da calcio - Cimirlo,way/387218985,,,,allineato a OSM leisure=pitch sport=soccer (74 m dal segnaposto My Maps) - da confermare
+Aree sportive,12,Falesie di Celva - Palestra di roccia,Falesie di Celva - palestra roccia,,,,,
+Aree sportive,13,Tavolo da ping pong - Giardini Villa Cavagna,Tavolo da ping pong - giardini villa Cavagna,,,,,
+Aree sportive,14,Piscina Moggioli,,,,,,posizione sconosciuta: assente in My Maps e OSM
+Aree sportive,15,Palestra CTG Povo,Palestra CTG Povo Aps,,,,,da My Maps (non nel PDF); assente in OSM: posizione My Maps
+Aree sportive,16,Campo da bocce Stoi del Chegul,Campo da bocce Stoi del Chegul,node/5984876678,osm,,,da My Maps (non nel PDF); posizione: OSM leisure=pitch sport=boules (il segnaposto My Maps era a ~140 m)
+Ristorazione e agriturismi,1,Pizza Rio,Pizza Rio,,,,,
+Ristorazione e agriturismi,2,Orostube,Orostube,,,,,
+Ristorazione e agriturismi,3,Gelateria Dolomeis Povo,Gelateria Dolomeis Povo,,,,,
+Ristorazione e agriturismi,4,Pane... e non solo!,Pane...e non solo!,,,,,
+Ristorazione e agriturismi,5,Bar Caffè Osteria Canton,Bar al Canton,,,,,
+Ristorazione e agriturismi,6,Bar in Centro,Bar in Centro,,,,,
+Ristorazione e agriturismi,7,Ristorante La Botte,La Botte,,,,,
+Ristorazione e agriturismi,8,Ristorante La Cantina,La Cantina,,,,,
+Ristorazione e agriturismi,9,Oltrebar,Oltrebar,,,,,
+Ristorazione e agriturismi,10,Bar al Salè - Panificio Tabacchi,Bar al Salè,,,,,
+Ristorazione e agriturismi,11,Sapori di Gastronomia,Sapori di Gastronomia,,,,,
+Ristorazione e agriturismi,12,Samont Drink & Food,Samont Drink & Food,,,,,
+Ristorazione e agriturismi,13,Agritur 8 Grappoli,8 Grappoli Agritur,,,,,
+Ristorazione e agriturismi,14,Agritur Verderame,Agritur Verderame,,,,,
+Ristorazione e agriturismi,15,Agritur La Tenuta,,way/783856494,,,,assente in My Maps: posizione da OSM
+Ristorazione e agriturismi,16,Agritur Ponte Alto,Agritur Ponte Alto,,,,,
+Ristorazione e agriturismi,17,Panificio Pittalis Loredana,Panificio Pittalis Loredana,,,,,da My Maps (non nel PDF); assente in OSM: posizione My Maps
+Luoghi di interesse storico/artistico/naturalistico e fontane,1,Orrido di Ponte Alto,Orrido di Ponte Alto,node/5680205931,osm,,,"posizione OSM natural=gorge, tra il ponte romano e il Ristorante La Gnoccata"
+Luoghi di interesse storico/artistico/naturalistico e fontane,2,Gallerie della guerra,Gallerie della guerra,node/5405518900,,,,"allineato a OSM military=bunker ""gallerie militari"""
+Luoghi di interesse storico/artistico/naturalistico e fontane,3,"Monumento ""Ai Caduti di tutte le Guerre""",Monumento “Ai Caduti di tutte le Guerre” di Povo,,,,,
+Luoghi di interesse storico/artistico/naturalistico e fontane,4,Fonte storica,Fonte storica,,,,,
+Luoghi di interesse storico/artistico/naturalistico e fontane,5,Fontana - Gabbiolo,Fontana - Gabbiolo,node/430764605,,,,"allineato a OSM ""Lavatoio pubblico"" (amenity=fountain, historic=lavoir)"
+Luoghi di interesse storico/artistico/naturalistico e fontane,6,Forte Sella di Roncogno,Forte Sella di Roncogno,,,,,
+Luoghi di interesse storico/artistico/naturalistico e fontane,7,Fontana di Piazza Manci,Fontana P.zza Manci,,,,,
+Luoghi di interesse storico/artistico/naturalistico e fontane,8,Lapide commemorativa di Giannantonio Manci,"Lapide commemorativa di Giannantonio Manci, partigiano italiano, eroe della resistenza",,,,,
+Luoghi di interesse storico/artistico/naturalistico e fontane,9,Fontana di via Madonnina,Fontana via Madonnina con vicina panchina,,,,,
+Luoghi di interesse storico/artistico/naturalistico e fontane,10,Giardino Orsoline,,,,46.066,11.15526,"parco dell'ex Villa Thun (Istituto delle Orsoline), piazza Manci 15 - posizione della sequoia, approssimata per il giardino"
+Luoghi di interesse storico/artistico/naturalistico e fontane,11,Albero monumentale Giardino Orsoline - Sequoia gigante,,node/13018724186,osm,,,"OSM natural=tree, denotation=natural_monument, Sequoiadendron giganteum; albero monumentale del Comune di Trento"
+Luoghi di interesse storico/artistico/naturalistico e fontane,12,Villa Gherta,Villa Gherta,way/78363234,,,,"allineato a OSM historic=manor, access=private"
+Luoghi di interesse storico/artistico/naturalistico e fontane,13,"""Sason"" - Masso erratico",,way/692657294,osm,,,"assente in My Maps: posizione da OSM (natural=stone ""El Sason"")"
+Luoghi di interesse storico/artistico/naturalistico e fontane,14,Stoi de Chegul,Stoi de Chegul,node/392388064,osm,,,"da My Maps (non nel PDF); posizione: pannello OSM ""Stoi del Chegul"" (gli Stoi non sono mappati in OSM); sostituisce il vecchio PoI manuale"
+Luoghi di interesse storico/artistico/naturalistico e fontane,15,Fontana dei Gai,Fontana dei Gai,node/392387223,osm,,,"da My Maps (non nel PDF); nella My Maps sta in ""Cultura"": spostata tra le fontane; node/392387223 è il toponimo (place=locality), la fontana come oggetto non è ancora in OSM"
+Luoghi di interesse storico/artistico/naturalistico e fontane,16,Ponte Alto - ponte romano,Ponte ALTO,way/1202532377,osm,,,"da My Maps (non nel PDF, era in ""Ristorazione""): è il ponte romano al confine, vicino al Ristorante La Gnoccata; posizione OSM man_made=bridge"
+Servizi e attività economiche,1,Vigili del Fuoco Volontari,,way/1266800064,,,,assente in My Maps: posizione da OSM
+Servizi e attività economiche,2,A.P.S.P. Margherita Grazioli - Casa Melograno - Centro Servizi,A.P.S.P. Margherita Grazioli - Povo,,,,,
+Servizi e attività economiche,3,Punto prelievi,Punto prelievi,,,,,
+Servizi e attività economiche,4,Ufficio postale,Poste Italiane,,,,,
+Servizi e attività economiche,5,Farmacia comunale di Povo,Farmacia Comunale Povo,,,,,
+Servizi e attività economiche,6,Famiglia Cooperativa - Supermercato Piazza Manci,Famiglia Cooperativa di Povo dal 1895,,,,,
+Servizi e attività economiche,7,Famiglia Cooperativa - Supermercato Sprè,Famiglia Cooperativa Oltrecastello,,,,,
+Servizi e attività economiche,8,Mercatino del riuso,Mercatino del riuso,,,,,
+Servizi e attività economiche,9,Tabaccheria,Tabaccheria Pegoretti Maria Tiziana,node/289227507,,,,"allineato a OSM shop=newsagent ""Giornali Tabacchi"""
+Servizi e attività economiche,10,Banca per il Trentino Alto Adige,Banca per il Trentino Alto Adige - Bank für Trentino-Südtirol Filiale Trento 7,,,,,
+Servizi e attività economiche,11,CRM Povo,CRM Povo,,,,,
+Servizi e attività economiche,12,Api e Terre di Giuseppe Barbareschi - Frutta e verdura,Api e Terre di Giuseppe Barbareschi - Maso Bianca,,,,,
+Servizi e attività economiche,13,Mercato di Piazza Manci del mercoledì e del sabato,Mercato di Piazza Manci del mercoledì,,,,,
+Servizi e attività economiche,14,AB Cartocopisteria S.a.s.,AB Cartocopisteria S.a.S.,,,,,
+Servizi e attività economiche,15,Autodelta di Zordan Romeo,Officina meccanica elettrauto gommista - Autodelta Di Zordan Romeo,,,,,
+Servizi e attività economiche,16,Estetica Mia,Estetica Mia di Alessandra Mosna,,,,,
+Servizi e attività economiche,17,Cabina per fototessere,Cabina per fototessere,,,,,
+Servizi e attività economiche,18,Scuola dell'infanzia M. Conotter,,way/189295614,,,,assente in My Maps: posizione da OSM
+Servizi e attività economiche,19,Scuola dell'infanzia A. Lorenzini,,way/78362954,,,,assente in My Maps: posizione da OSM
+Servizi e attività economiche,20,Scuola primaria U. Moggioli di Povo,,way/180406222,,,,assente in My Maps: posizione da OSM
+Servizi e attività economiche,21,DAE - Defibrillatore,DAE,node/11855466596,,,,
+Servizi e attività economiche,22,Vasca terapeutica presso APSP M. Grazioli,Vasca terapeutica presso Apsp M. Grazioli,nuovo,,,,da My Maps (non nel PDF); spazio interno alla struttura APSP: PoI separato; assente in OSM: posizione My Maps
+Servizi e attività economiche,23,Palestra presso APSP M. Grazioli,Palestra presso Apsp M. Grazioli,nuovo,,,,da My Maps (non nel PDF); spazio interno alla struttura APSP: PoI separato; assente in OSM: posizione My Maps
+Servizi e attività economiche,24,Sale presso APSP M. Grazioli,Sale presso Apsp M. Grazioli,nuovo,,,,da My Maps (non nel PDF); spazio interno alla struttura APSP: PoI separato; assente in OSM: posizione My Maps
+Luoghi di culto,1,Chiesa parrocchiale dei Santi Pietro e Andrea - Povo Pantè,Chiesa parrocchiale dei Santi Pietro e Andrea,,,,,
+Luoghi di culto,2,Chiesetta di Sant'Agata e Santa Lucia - Doss Sant'Agata (in ristrutturazione),Chiesa di Sant'Agata,way/592790203,,,,
+Luoghi di culto,3,Chiesetta di San Francesco d'Assisi - Gabbiolo,Chiesa di San Francesco d'Assisi,,,,,
+Luoghi di culto,4,Chiesetta dei Santi Rocco e Sebastiano - Gabbiolo,,way/818875812,,,,assente in My Maps: posizione da OSM
+Luoghi di culto,5,Chiesetta di San Pantaleone - Oltrecastello,Chiesa di San Pantaleone,,,,,
+Luoghi di culto,6,Chiesa del Cuore Immacolato di Maria - Oltrecastello,Chiesa del Cuore Immacolato di Maria,,,,,
+Luoghi di culto,7,Chiesetta di Sant'Antonio da Padova - Celva,Chiesa di Sant'Antonio da Padova,,,,,
+Luoghi di culto,8,Chiesa di San Bernardo - Cimirlo,,way/79387094,,,,assente in My Maps: posizione da OSM
+Luoghi di culto,9,Chiesetta di San Carlo Borromeo - Oltrecastello,Chiesa di San Carlo Borromeo,,,,,
+Luoghi di culto,10,Cappella di San Francesco d'Assisi - via Villa Maria,,way/189295439,osm,,,"nome da Wikidata Q100429600 (tag wikidata dell'elemento OSM), foto Commons; accanto a Villa Graffer: probabilmente la ""Cappella ex Salvadori, Moggioli, Graffer - privata"" del PDF (n. 10), da confermare"
+Luoghi di culto,11,Cappella Manci - Mesiano,,way/64714418,osm,,,"Wikidata Q96631795 ""cappella del Crocefisso"", foto Commons; in OSM disused=yes"
+Luoghi di culto,12,Cappella della Beata Maria Vergine - Graffiano,,way/1070388839,osm,,,"nome da Wikidata Q111472699 (tag wikidata dell'elemento OSM), nessuna foto; probabilmente la ""Cappella Manci - Graffiano"" del PDF (n. 12), da confermare"
+Luoghi di culto,13,Cappella della Madonna della Corona - Via Villa Maria,,way/189295550,osm,,,"confermata da Wikidata Q100428515 (tag wikidata dell'elemento OSM), foto Commons"
+Luoghi di culto,14,Cimitero di Povo,Cimitero di Povo,way/38960039,,,,"allineato a OSM landuse=cemetery ""Cimitero Comunale di Povo"""
+Luoghi di culto,15,Crocifisso di via Gabbiolo,Crocifisso via Gabbiolo,node/1999373684,osm,,,da My Maps (non nel PDF); posizione: OSM historic=wayside_cross
+Associazioni e gruppi,1,ACLI Povo,,,,46.06628,11.15415,sede: piazza Manci 5 (aclitrentine.it)
+Associazioni e gruppi,2,ANA Povo-Villazzano,,,,46.065993,11.174561,"luogo di attività: Baita ANA in località Moronar (l'Adige 2018) - posizione della località, approssimata"
+Associazioni e gruppi,3,AVIS Povo,,,,,,senza sede sulla mappa
+Associazioni e gruppi,4,Circolo ARCI Paho,,,,,,senza sede sulla mappa
+Associazioni e gruppi,5,Circolo Oratorio Concordia,,,,46.06444,11.15352,luogo di attività: Oratorio di Povo (eventi TuttaPovo)
+Associazioni e gruppi,6,Circolo Culturale Pensionati ed Anziani,,,,46.06596,11.15445,"sede: ""Circolo Pensionati di Povo, piazza Manci"" (eventi TuttaPovo) - civico non noto, posizione approssimata"
+Associazioni e gruppi,7,Pro Loco Oltrecastello,,,,46.07154,11.16247,luogo di attività: parco e piazza di Oltrecastello (eventi TuttaPovo)
+Associazioni e gruppi,8,Comitato Gemellaggio Znojmo,,,,,,senza sede sulla mappa
+Associazioni e gruppi,9,CTG Povo,Palestra CTG Povo Aps,,,,,luogo di attività: Palestra CTG (My Maps)
+Associazioni e gruppi,10,Filodrammatica Concordia 74,,,,46.06448,11.15385,luogo di attività: Teatro Concordia (eventi TuttaPovo)
+Associazioni e gruppi,11,GLOW,,,,46.064235,11.152672,"luogo di attività: Casa Sociale, via Salè 1 (eventi TuttaPovo)"
+Associazioni e gruppi,12,GSA Povo,,,,,,senza sede sulla mappa
+Associazioni e gruppi,13,G.S. Marzola,,,,,,senza sede sulla mappa
+Associazioni e gruppi,14,SAT Sezione di Povo,,node/11676194235,,,,sede: piazzale Carlo Merler 2 (OSM)
+Associazioni e gruppi,15,U.S.D. ViPo Trento,,,,46.05612,11.14956,luogo di attività: campo ViPo al Centro Sportivo Ceschi (My Maps)
+Associazioni e gruppi,16,Coro Voci in Accordo,,,,,,senza sede sulla mappa
+Associazioni e gruppi,17,Club Interassociativo TuttaPovo,,node/14049910025,,,,sede (OSM)
+Associazioni e gruppi,18,Artici - Le Ali della Coccinella,,,,,,senza sede sulla mappa
+Associazioni e gruppi,19,Karamoja Group,,,,,,senza sede sulla mappa
+Associazioni e gruppi,20,Kazoo (Circolo Open),,node/279462366,,,,"sede: via Madonnina 1, Circolo Open (OSM)"
+Associazioni e gruppi,21,Raise Hope ODV,,,,,,senza sede sulla mappa
+Associazioni e gruppi,22,Vigili del Fuoco Volontari,,,,,,stessa sede di Servizi n.1 (caserma VVF): non duplicata sulla mappa
+Associazioni e gruppi,23,Kaleidoscopio s.c.s.,,node/13990899418,,,,sede (OSM); eventi TuttaPovo: Spazio Aperto via Dallafior 2
+Associazioni e gruppi,24,Banca del Tempo Etico,,,,,,senza sede sulla mappa
+Associazioni e gruppi,25,Siamo il Salento,,,,,,senza sede sulla mappa
+Associazioni e gruppi,26,Povo Sonica,,,,,,senza sede sulla mappa
+Parchi e aree picnic,1,Parco giochi Villa Cavagna,Parco giochi Giardino Villa Cavagna,,,,,
+Parchi e aree picnic,2,Parco giochi e area verde tra via Salè e via Dallafior,Parco giochi e area verde tra via Sale' e via Dallafior,,,,,
+Parchi e aree picnic,3,Area giochi nuovo parco al Salè,Area giochi nuovo parco Salè,,,,,
+Parchi e aree picnic,4,Parco giochi di Graffiano,Parco giochi di Graffiano,,,,,
+Parchi e aree picnic,5,Parco giochi e area verde via dei Rivi,Parco giochi e area verde via dei Rivi,relation/21068294,osm,,,"area verde con collinetta e anfiteatro (descrizione My Maps) = OSM leisure=park relation/21068294; il parco giochi al suo interno è la ""Giraffa"" (n. 8)"
+Parchi e aree picnic,6,Parco giochi - Giardino Oltrecastello,Parco giochi - Giardino Oltrecastello,,,,,
+Parchi e aree picnic,7,Altalene e giochi vecchio parco al Salè,Altalene e giochi vecchio parco Salé,,,,,
+Parchi e aree picnic,8,"Parco giochi ""della Giraffa"" - Piazza Manci",,node/4970067463,osm,,,"parco giochi OSM node/4970067463 (conferma utente): tra la chiesa e il cimitero, scultura ""giraffaggia"" (il Dolomiti 2017), gestito dalla Cooperativa Il Gabbiano"
+Parchi e aree picnic,9,Parco via Brenz - Borino,,way/548143655,osm,,,"""Giardino Borino"" in OSM (landuse=recreation_ground)"
+Parchi e aree picnic,10,Area picnic adiacente al Centro civico,Area picnic adiacente al Centro civico,,,,,da My Maps (non nel PDF)
+Parchi e aree picnic,11,Area picnic,Area picnic,,,,,da My Maps (non nel PDF)
+Parchi e aree picnic,12,Area picnic strada per Maranza - punto grigliate,Area picnic strada per Maranza | Punto grigliate,,,,,"da My Maps (non nel PDF); stesso posto del segnaposto My Maps ""Punto grigliate"" (conferma utente)"
+Parchi e aree picnic,13,Area picnic Dosso Sant'Agata,Area picnic Dosso Sant'Agata,,,,,da My Maps (non nel PDF)
+Parchi e aree picnic,14,Grill park attrezzato Pra Marquart,Grill park attrezzato pra marquart,,,,,da My Maps (non nel PDF)
+Parchi e aree picnic,15,Parco di Cimirlo,Parco di Cimirlo,,,,,da My Maps (non nel PDF)
+Parchi e aree picnic,16,Panchine - Giardino Villa Cavagna,Panchine - Giardino Villa Cavagna,,,,,da My Maps (non nel PDF)
+Parchi e aree picnic,17,Area picnic e sosta al Parco al Salè,Area picnic e sosta al Parco al Salé,,,,,da My Maps (non nel PDF)
+Parchi e aree picnic,18,Area picnic,Area picnic #2,,,,,da My Maps (non nel PDF)
+Parchi e aree picnic,19,Area picnic Forte Roncogno,Area picnic Forte Roncogno,,,,,da My Maps (non nel PDF)
+Parchi e aree picnic,20,Parco e zona picnic area calisthenics,Parco e zona picnic area calisthenic,,,,,da My Maps (non nel PDF)
+Percorsi escursionistici,1,Passeggiata sul Dos Sant'Agata - Salita Sant'Agata,Inizio camminata al Doss di S. Agata,node/10081546979,,,,allineato a OSM: cartello escursionistico alla partenza
+Percorsi escursionistici,2,Passeggiata sul Dos Sant'Agata - Salita Santa Lucia,Salita di S. Lucia fino al Doss S. Agata,,,,,
+Percorsi escursionistici,3,Passeggiata sul Dos Sant'Agata - Salita da Oltrecastello,,node/8977889118,osm,,,estremità lato Oltrecastello del Sentiero Sant'Agata (OSM relation/14666008)
+Percorsi escursionistici,4,Passo Cimirlo ed escursioni sulle pendici della Marzola,"Passo del Cimirlo - possibile punto di partenza giro del Chegul, ferrata Bertotti, ...",node/274232982,,,,"allineato a OSM natural=saddle ""Passo del Cimirlo"""
+Percorsi escursionistici,5,Monte Celva ed il sentiero dei cento scalini,Sentiero n° 419 Cima Celva,,,,,
+Percorsi escursionistici,6,Sentiero attrezzato G. Bertotti,Sentiero attrezzato G. Bertotti,node/10868054072,osm,,,"da My Maps (non nel PDF); partenza località Piani = cartello OSM ""Piani"" (il segnaposto My Maps era a 544 m)"
+Percorsi escursionistici,7,Sentieri n. 455 e 456 (Sentiero del 50°),Sentieri n° 455 e n° 456 (Sentiero del 50°),node/274232982,osm,,,"da My Maps (non nel PDF); partenza Passo del Cimirlo (OSM natural=saddle); tracciati SAT 455 = relation/7186805, 456 = relation/7184935"
+Mobilità,1,Piste ciclabili,,,,,,tracciati lineari: non rappresentabili come punto
+Mobilità,2,Stazione Trento - Povo Mesiano,,node/4922948640,osm,,,assente in My Maps: posizione da OSM
+Mobilità,3,Colonnina di ricarica elettrica - Piazza Manci,,node/13989631523,osm,,,assente in My Maps: posizione da OSM
+Mobilità,4,Car sharing,,,,,,nessuna postazione in OSM entro la circoscrizione

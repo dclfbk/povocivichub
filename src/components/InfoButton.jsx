@@ -21,7 +21,7 @@ export default function InfoButton({ title, children }) {
       <button
         type="button"
         onClick={handleOpen}
-        className="text-slate-500 hover:text-indigo-400 transition shrink-0"
+        className="text-slate-400 hover:text-indigo-400 transition shrink-0"
         aria-label={`Cos'è: ${title}`}
         title={`Cos'è: ${title}`}
       >

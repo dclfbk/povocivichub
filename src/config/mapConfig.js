@@ -1,5 +1,7 @@
 import booleanPointInPolygon from '@turf/boolean-point-in-polygon';
-import { Home, Bus, Trees, BookOpen } from 'lucide-react';
+import {
+  Home, Bus, Trees, BookOpen, Drama, Dumbbell, UtensilsCrossed, Store, Church, Users, Footprints, Landmark, MapPin
+} from 'lucide-react';
 
 // Shared styling for POI categories, used by both the map (colors) and the
 // sidebar layer switcher (legend icons/labels).
@@ -11,6 +13,43 @@ export const CATEGORY_STYLES = {
 };
 
 export const ALL_POI_CATEGORIES = Object.keys(CATEGORY_STYLES);
+
+// Citizen-facing grouping from the circoscrizione's own "Mappatura servizi"
+// table (2026-10-09 feedback: "Tipo di Servizio" should be grouped like their
+// PDF, and picking a group should show only those pins). Keys match the
+// pipeline's `gruppo_servizio` field (build_data.py GRUPPI_SERVIZIO); colors
+// follow the PDF's group colors, lightened where needed to read on the dark
+// UI. Independent of CATEGORY_STYLES, which stays the sociological
+// (residenti/pendolari/...) axis behind the hexagon indicators.
+export const GRUPPI_SERVIZIO = {
+  cultura: { label: 'Cultura e tempo libero', color: '#2dd4bf', icon: Drama },
+  sport: { label: 'Aree sportive', color: '#facc15', icon: Dumbbell },
+  ristorazione: { label: 'Ristorazione e agriturismi', color: '#fb923c', icon: UtensilsCrossed },
+  servizi: { label: 'Servizi e attività economiche', color: '#f43f5e', icon: Store },
+  culto: { label: 'Luoghi di culto', color: '#d946ef', icon: Church },
+  associazioni: { label: 'Associazioni e gruppi', color: '#3b82f6', icon: Users },
+  parchi: { label: 'Parchi e aree picnic', color: '#a3e635', icon: Trees },
+  percorsi: { label: 'Percorsi escursionistici', color: '#4ade80', icon: Footprints },
+  monumenti: { label: 'Luoghi di interesse e fontane', color: '#d97706', icon: Landmark },
+  mobilita: { label: 'Mobilità', color: '#60a5fa', icon: Bus },
+  altro: { label: 'Altri punti (panchine, info, …)', color: '#94a3b8', icon: MapPin }
+};
+
+export const ALL_GRUPPI = Object.keys(GRUPPI_SERVIZIO);
+
+// The FeatureCollection actually handed to the map's PoI source: filtering
+// the data (instead of only the unclustered-icon layer) keeps cluster
+// bubbles and the heatmap consistent with what's selected.
+export function filterPoisForMap(poisData, categories, gruppi) {
+  if (!poisData) return null;
+  return {
+    type: 'FeatureCollection',
+    features: poisData.features.filter((f) => {
+      const p = f.properties || {};
+      return categories.includes(p.category) && gruppi.includes(p.gruppo_servizio || 'altro');
+    })
+  };
+}
 
 // Selectable background maps (2026-07-28 feedback: reduced down to just
 // MapToolkit's Italian-localized vector styles plus the Trento aerial
@@ -584,6 +623,8 @@ export function createPoiIconImage(iconName) {
 
 // Human-friendly Italian label for a POI's raw OSM sub_type value.
 const SUB_TYPE_LABELS = {
+  bakery: 'Panificio',
+  table_tennis: 'Campo da ping pong',
   fort: 'Forte / Sito Storico',
   castle: 'Castello',
   monument: 'Monumento',
@@ -709,7 +750,7 @@ function fatigueSuffix(pct) {
 function reachabilityRow(icon, label, distanceM, timeMin, fatiguePct) {
   if (typeof distanceM !== 'number' || typeof timeMin !== 'number') return '';
   return `
-    <div style="font-size: 11px; color: #e2e8f0; margin-top: 3px;">
+    <div style="font-size: 0.8125rem; color: #e2e8f0; margin-top: 3px;">
       ${icon} ${label}: <strong>${Math.round(distanceM)} m</strong> · ~${timeMin.toFixed(0)} min a piedi${fatigueSuffix(fatiguePct)}
     </div>
   `;
@@ -746,7 +787,7 @@ function buildViewProviders(lat, lon) {
   ];
 }
 
-const MAP_CHOOSER_SELECT_STYLE = 'font-size: 11px; color: #e2e8f0; background: #1e293b; border: 1px solid #475569; border-radius: 4px; padding: 2px 4px; max-width: 130px;';
+const MAP_CHOOSER_SELECT_STYLE = 'font-size: 0.8125rem; color: #e2e8f0; background: #1e293b; border: 1px solid #475569; border-radius: 4px; padding: 2px 4px; max-width: 130px;';
 // Opens the chosen provider in a new tab, then resets to the placeholder so
 // the same <select> can be reused without a page reload always showing the
 // last pick.
@@ -776,10 +817,20 @@ function buildMapChooserHtml(geouri) {
   `;
 }
 
+// My Maps descriptions are free text typed by the circoscrizione -- escaped
+// before going into the popup's innerHTML.
+function escapeHtml(text) {
+  return String(text)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
 function detailRow(icon, label, value) {
   if (!value || String(value).trim().length === 0) return '';
   return `
-    <div style="font-size: 11px; color: #e2e8f0; margin-top: 3px;">
+    <div style="font-size: 0.8125rem; color: #e2e8f0; margin-top: 3px;">
       ${icon} ${label}: ${value}
     </div>
   `;
@@ -801,10 +852,11 @@ export function buildPoiPopupHtml(props) {
     ? props.image_url
     : buildPlaceholderImageDataUri(props.icon_name);
   const secondaryCategories = (props.categoria_secondaria || '').split(',').filter(Boolean);
+  const gruppo = GRUPPI_SERVIZIO[props.gruppo_servizio];
 
   const detailsHtml = [
     props.indirizzo ? `
-      <div style="font-size: 11px; color: #e2e8f0; margin-top: 3px;">
+      <div style="font-size: 0.8125rem; color: #e2e8f0; margin-top: 3px;">
         📍 Indirizzo: ${props.indirizzo}
       </div>
     ` : '',
@@ -821,30 +873,30 @@ export function buildPoiPopupHtml(props) {
     detailRow('♿', 'Accessibilità disabili', props.accessibilita_disabili),
     detailRow('☎️', 'Contatti', props.contatti),
     props.sito_web ? `
-      <div style="font-size: 11px; margin-top: 3px;">
+      <div style="font-size: 0.8125rem; margin-top: 3px;">
         🌐 <a href="${props.sito_web}" target="_blank" rel="noopener noreferrer" style="color: #a5b4fc; text-decoration: underline;">Sito web</a>
       </div>
     ` : ''
   ].filter(Boolean).join('');
 
   return `
-    <div style="font-family: Inter, sans-serif; width: 280px;">
+    <div style="font-family: Inter, sans-serif; width: min(20rem, 80vw);">
       <img src="${imageSrc}" alt=""
            style="width: 100%; height: 120px; object-fit: cover; display: block;" />
       <div style="padding: 12px;">
-        <div style="font-weight: 700; font-size: 14px; color: #ffffff; line-height: 1.3;">
+        <div style="font-weight: 700; font-size: 1rem; color: #ffffff; line-height: 1.3;">
           ${props.name && props.name.length > 0 ? props.name : 'Punto di interesse'}
         </div>
-        <span style="display: inline-block; margin-top: 6px; padding: 3px 9px; border-radius: 999px; font-size: 10px; font-weight: 700; color: #ffffff; background: ${badge.color};">
+        <span style="display: inline-block; margin-top: 6px; padding: 3px 9px; border-radius: 999px; font-size: 0.75rem; font-weight: 700; color: #ffffff; background: ${badge.color};">
           ${badge.label}
         </span>
         ${props.accesso_pubblico !== false ? `
-          <span style="display: inline-block; margin-top: 6px; margin-left: 4px; padding: 3px 9px; border-radius: 999px; font-size: 10px; font-weight: 700; color: #065f46; background: #6ee7b7;">
+          <span style="display: inline-block; margin-top: 6px; margin-left: 4px; padding: 3px 9px; border-radius: 999px; font-size: 0.75rem; font-weight: 700; color: #065f46; background: #6ee7b7;">
             🌐 Accesso Pubblico
           </span>
         ` : ''}
         ${props.solo_riferimento ? `
-          <span style="display: inline-block; margin-top: 6px; margin-left: 4px; padding: 3px 9px; border-radius: 999px; font-size: 10px; font-weight: 700; color: #475569; background: #e2e8f0;">
+          <span style="display: inline-block; margin-top: 6px; margin-left: 4px; padding: 3px 9px; border-radius: 999px; font-size: 0.75rem; font-weight: 700; color: #475569; background: #e2e8f0;">
             ℹ️ Solo riferimento (escluso dagli indicatori)
           </span>
         ` : ''}
@@ -852,15 +904,20 @@ export function buildPoiPopupHtml(props) {
           <div style="margin-top: 6px;">
             ${secondaryCategories.map((cat) => {
               const secBadge = POPUP_CATEGORY_BADGES[cat] || { label: cat, color: '#94a3b8' };
-              return `<span style="display: inline-block; margin-top: 2px; margin-right: 4px; padding: 2px 8px; border-radius: 999px; font-size: 9px; font-weight: 700; color: ${secBadge.color}; background: #ffffff; border: 1.5px solid ${secBadge.color};">
+              return `<span style="display: inline-block; margin-top: 2px; margin-right: 4px; padding: 2px 8px; border-radius: 999px; font-size: 0.75rem; font-weight: 700; color: ${secBadge.color}; background: #ffffff; border: 1.5px solid ${secBadge.color};">
                 + ${secBadge.label}
               </span>`;
             }).join('')}
           </div>
         ` : ''}
-        ${serviceType ? `
-          <div style="font-size: 11px; color: #cbd5e1; margin-top: 6px; font-weight: 600;">
-            ${serviceType}
+        ${gruppo || serviceType ? `
+          <div style="font-size: 0.875rem; color: #cbd5e1; margin-top: 6px; font-weight: 600;">
+            ${gruppo ? `<span style="color: ${gruppo.color};">${gruppo.label}</span>` : ''}${gruppo && serviceType ? ' · ' : ''}${serviceType || ''}
+          </div>
+        ` : ''}
+        ${props.descrizione ? `
+          <div style="font-size: 0.875rem; color: #e2e8f0; margin-top: 8px; line-height: 1.45; max-height: 140px; overflow-y: auto;">
+            ${escapeHtml(props.descrizione).replace(/\n/g, '<br>')}
           </div>
         ` : ''}
         ${detailsHtml ? `
@@ -870,10 +927,10 @@ export function buildPoiPopupHtml(props) {
         ` : ''}
         ${hasSocialFunction ? `
           <div style="margin-top: 10px; padding-top: 8px; border-top: 1px solid rgba(255,255,255,0.15);">
-            <div style="font-size: 10px; font-weight: 700; color: #a5b4fc; text-transform: uppercase; letter-spacing: 0.05em;">
+            <div style="font-size: 0.75rem; font-weight: 700; color: #a5b4fc; text-transform: uppercase; letter-spacing: 0.05em;">
               Funzione Civica e Sociale
             </div>
-            <div style="font-size: 11px; color: #e2e8f0; margin-top: 4px; line-height: 1.4;">
+            <div style="font-size: 0.8125rem; color: #e2e8f0; margin-top: 4px; line-height: 1.4;">
               ${props.social_function}
             </div>
           </div>

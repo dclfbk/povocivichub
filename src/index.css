@@ -103,3 +103,25 @@
 ::-webkit-scrollbar-thumb:hover {
   background: rgba(99, 102, 241, 0.8);
 }
+
+/* "3D" toggle in the map's top-right control stack, under zoom/compass. */
+.maplibregl-ctrl-group button.terrain-3d-ctrl {
+  font: 700 12px/1 Inter, sans-serif;
+  color: #333;
+}
+.maplibregl-ctrl-group button.terrain-3d-ctrl.is-active {
+  background-color: #6366f1;
+  color: #fff;
+}
+
+/* Visible keyboard focus everywhere (2026-10-09 feedback: accessibilità). */
+:focus-visible {
+  outline: 3px solid #a5b4fc;
+  outline-offset: 2px;
+}
+
+/* Long popups (description + details) scroll instead of running off-screen. */
+.maplibregl-popup-content {
+  max-height: 70vh;
+  overflow-y: auto;
+}
