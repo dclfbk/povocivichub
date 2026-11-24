@@ -1,0 +1,20 @@
+gruppo,regex,id,nota
+casa_sociale,agor[aà],mappatura_cultura_3,Salone Agorà della Casa Sociale
+casa_sociale,casa sociale,locale_10,Casa Sociale (generica)
+apsp,melograno|grazioli|polifunzionale,37393912,APSP Margherita Grazioli / Casa Melograno / Centro Polifunzionale
+nichelatti,nichelatti,locale_4,Sala video Nichelatti (Centro Civico)
+chiesa_povo,^(?!.*villazzano).*(chiesa parrocchiale|chiesa povo|povo chiese|chiese? .*povo|campanile di povo),78363100,"Chiesa parrocchiale di Povo (esclusa quella di Villazzano)"
+teatro,teatro concordia,1999372436,Teatro Concordia
+oratorio,^(?!.*villazzano).*oratorio,mappatura_associazioni_5,"Oratorio / piazzale oratorio di Povo (escluso Villazzano)"
+piazza_manci,piazza manci|piazza povo|piazza g\. ?manci,78363157,Piazza Manci
+pensionati,pensionati,mappatura_associazioni_6,Circolo Culturale Pensionati
+fbk,fondazione bruno kessler|luigi stringa|sede di fbk,58994,FBK (sala Luigi Stringa)
+oltrecastello_parco,parco di oltrecastel,53702873,Giardino / parco di Oltrecastello
+oltrecastello_piazza,piazza (di )?oltrecastello,mappatura_monumenti_18,Piazza di Oltrecastello
+malga_nova,malga nova,10868054034,Malga Nova
+santagata,dos+ s\.? ?agata,592790203,Doss Sant'Agata
+stoi,stoi (de|del|in) chegul,10868054059,Stoi del Chegul
+borino,parco giochi di borino,556978699,Parco giochi di Borino
+maranza,maranza,863821782,Area picnic sulla strada per Maranza
+cimirlo,passo del cimirlo,mappatura_percorsi_4,Passo Cimirlo (rocolo Chesani)
+kaleidoscopio,kaleidoscopio,13990899418,Spazio Kaleidoscopio

@@ -2686,6 +2686,27 @@ def apply_revisione_circoscrizione(gdf_utm, gdf_wgs84):
     return gdf_utm, gdf_wgs84, stats
 
 
+# --- Eventi di TuttaPovo (2026-11-24): logic in eventi.py, shared with the
+# lightweight weekly updater update_eventi.py (GitHub Action).
+def attach_eventi_tuttapovo(gdf_utm, gdf_wgs84):
+    from eventi import link_eventi
+
+    print("--> Linking TuttaPovo events to PoIs...")
+    gdf_utm = gdf_utm.copy()
+    gdf_wgs84 = gdf_wgs84.copy()
+    for g in (gdf_utm, gdf_wgs84):
+        g['eventi_n'] = 0
+        g['eventi'] = ''
+    per_poi, stats = link_eventi(set(gdf_utm['id'].astype(str)))
+    id_to_idx = {str(i): idx for idx, i in zip(gdf_utm.index, gdf_utm['id'])}
+    for pid, (n, shown) in per_poi.items():
+        idx = id_to_idx[pid]
+        for g in (gdf_utm, gdf_wgs84):
+            g.at[idx, 'eventi_n'] = n
+            g.at[idx, 'eventi'] = json.dumps(shown, ensure_ascii=False)
+    return gdf_utm, gdf_wgs84, stats
+
+
 def tobler_speed_kmh(grade):
     return 6.0 * math.exp(-3.5 * abs(grade + 0.05))
 
@@ -3441,6 +3462,19 @@ def write_report(path, stats, gdf_pois_wgs84):
     lines.append(f"- **Totale PoI finali nel dataset unificato: {total_final}**")
     lines.append("")
 
+    evs = stats.get('eventi')
+    if evs:
+        lines.append("## 1d. Eventi di TuttaPovo")
+        lines.append("")
+        lines.append(f"- Eventi letti: **{evs['eventi']}**, collegati a un punto della mappa: **{evs['abbinati']}**")
+        lines.append(f"- Miniature delle locandine: **{evs['locandine']}**")
+        if evs['non_abbinati']:
+            lines.append("- Eventi senza un luogo riconosciuto (fuori Povo, generici o non luoghi; "
+                         "per collegarli aggiungere una regola in raw_data/eventi_luoghi.csv):")
+            for loc in sorted(set(evs['non_abbinati'])):
+                lines.append(f"  - {loc}")
+        lines.append("")
+
     civ = stats.get('civici')
     if civ:
         lines.append("## 1c. Indirizzi dal civico più vicino (Comune di Trento)")
@@ -3630,6 +3664,7 @@ def main():
     gdf_pois_utm, gdf_pois_wgs84, enrich_stats = enrich_missing_data(gdf_pois_utm, gdf_pois_wgs84)
     gdf_pois_utm, gdf_pois_wgs84, image_check_stats = verify_image_urls(gdf_pois_utm, gdf_pois_wgs84)
     gdf_pois_utm, gdf_pois_wgs84, revisione_stats = apply_revisione_circoscrizione(gdf_pois_utm, gdf_pois_wgs84)
+    gdf_pois_utm, gdf_pois_wgs84, eventi_stats = attach_eventi_tuttapovo(gdf_pois_utm, gdf_pois_wgs84)
 
     G_utm, gdf_pois_utm = integrate_dtm_and_tobler(G_utm, DTM_INPUT, gdf_pois_utm)
     gdf_pois_wgs84['altitudine_m'] = gdf_pois_utm['altitudine_m'].values
@@ -3672,7 +3707,8 @@ def main():
         'mappatura': mappatura_stats,
         'n_private_sport_removed': n_private_sport_removed,
         'revisione': revisione_stats,
-        'civici': civici_stats
+        'civici': civici_stats,
+        'eventi': eventi_stats
     }, gdf_pois_wgs84)
 
     print("=== PIPELINE EXECUTED SUCCESSFULLY ===")

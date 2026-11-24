@@ -1,0 +1,68 @@
+name: Aggiorna eventi TuttaPovo
+
+# Ogni lunedì riscarica il calendario di tuttapovo.it, ricollega gli eventi
+# ai punti della mappa (python_pipeline/update_eventi.py: solo eventi e
+# locandine, senza rieseguire OSM/DTM/GTFS), committa se qualcosa è cambiato
+# e rilancia il deploy. Si può avviare anche a mano da Actions.
+on:
+  schedule:
+    - cron: "0 5 * * 1"  # lunedì, 05:00 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: write  # commit dei dati aggiornati
+  actions: write   # avvio del workflow di deploy
+
+concurrency:
+  group: update-eventi
+  cancel-in-progress: false
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          pip install playwright requests pillow
+          python -m playwright install --with-deps chromium
+
+      - name: Scarica il calendario da TuttaPovo
+        working-directory: python_pipeline
+        run: |
+          # Da gennaio 2024 a sei mesi da oggi, per avere anche i prossimi eventi.
+          python calendar_tuttapovo.py --from 01-2024 --to "$(date -d '+6 months' +%m-%Y)" -o eventi_tuttapovo.csv
+
+      - name: Collega gli eventi ai punti della mappa
+        working-directory: python_pipeline
+        run: python update_eventi.py
+
+      - name: Commit se ci sono cambiamenti
+        id: commit
+        run: |
+          git add python_pipeline/eventi_tuttapovo.csv public/data/povo_pois.json public/data/locandine
+          if git diff --cached --quiet; then
+            echo "Nessun cambiamento."
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git commit -m "Eventi TuttaPovo aggiornati ($(date +%Y-%m-%d))"
+            git push
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      # Un push fatto con GITHUB_TOKEN non avvia altri workflow: il deploy
+      # va lanciato esplicitamente.
+      - name: Avvia il deploy
+        if: steps.commit.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run deploy.yml --ref "${{ github.ref_name }}"

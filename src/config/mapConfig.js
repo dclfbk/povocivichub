@@ -980,6 +980,48 @@ function getPhotoPairs(props, currentSrc) {
     : [];
 }
 
+// TuttaPovo events linked to the PoI (2026-11-24): upcoming first, then the
+// latest past ones, each linking to its page on tuttapovo.it. `eventi` is an
+// array in povo_pois.json but a JSON string on rendered MapLibre features.
+function buildEventiHtml(props) {
+  let eventi = props.eventi;
+  try {
+    if (!Array.isArray(eventi)) eventi = JSON.parse(eventi || '[]');
+  } catch {
+    eventi = [];
+  }
+  const n = Number(props.eventi_n) || 0;
+  if (!n || !eventi.length) return '';
+  const link = 'color: #a5b4fc; text-decoration: underline;';
+  const items = eventi.map((e) => `
+    <li style="display: flex; gap: 8px; margin-top: 8px; align-items: flex-start;">
+      ${e.locandina ? `
+        <a href="${escapeHtml(e.url)}" target="_blank" rel="noopener noreferrer" style="flex: none;">
+          <img src="${e.locandina}" alt="Locandina" loading="lazy"
+               style="width: 52px; height: 72px; object-fit: cover; border-radius: 4px; background: #0f172a;" />
+        </a>` : ''}
+      <div style="min-width: 0;">
+        <div style="font-size: 0.75rem; font-weight: 700; color: ${e.prossimo ? '#fbbf24' : '#94a3b8'};">
+          ${e.prossimo ? 'Prossimo · ' : ''}${e.data ? formatDateIt(e.data) : ''}
+        </div>
+        <a href="${escapeHtml(e.url)}" target="_blank" rel="noopener noreferrer"
+           style="font-size: 0.8125rem; font-weight: 600; ${link}">${escapeHtml(e.titolo)}</a>
+        ${e.organizzatore ? `<div style="font-size: 0.75rem; color: #cbd5e1;">${escapeHtml(e.organizzatore)}</div>` : ''}
+        ${e.locandina_pdf ? `<a href="${escapeHtml(e.locandina_pdf)}" target="_blank" rel="noopener noreferrer" style="font-size: 0.75rem; ${link}">Locandina (PDF)</a>` : ''}
+      </div>
+    </li>`).join('');
+  return `
+    <div style="margin-top: 8px; padding-top: 8px; border-top: 1px solid rgba(255,255,255,0.15);">
+      <div style="font-size: 0.8125rem; font-weight: 700; color: #ffffff;">
+        📅 ${n} ${n === 1 ? 'evento' : 'eventi'} su TuttaPovo dal 2024
+      </div>
+      <ul style="list-style: none; margin: 0; padding: 0;">${items}</ul>
+      <a href="https://www.tuttapovo.it/appuntamenti.asp" target="_blank" rel="noopener noreferrer"
+         style="display: inline-block; margin-top: 6px; font-size: 0.75rem; ${link}">Tutti gli appuntamenti su TuttaPovo</a>
+    </div>
+  `;
+}
+
 // Builds the PoI detail popup's inner HTML from a feature's properties.
 // Shared between the map's direct-click handler and the PoI table's
 // "row click -> fly to it" flow, so both produce the identical rich popup.
@@ -1086,6 +1128,7 @@ export function buildPoiPopupHtml(props) {
             ${linkifyEscaped(escapeHtml(props.descrizione)).replace(/\n/g, '<br>')}
           </div>
         ` : ''}
+        ${buildEventiHtml(props)}
         ${detailsHtml ? `
           <div style="margin-top: 8px; padding-top: 8px; border-top: 1px solid rgba(255,255,255,0.15);">
             ${detailsHtml}

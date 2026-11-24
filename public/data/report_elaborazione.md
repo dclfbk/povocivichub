@@ -15,6 +15,46 @@ _Generato automaticamente da `python_pipeline/build_data.py`._
 - Impianti sportivi ad accesso privato rimossi (non solo esclusi dagli indicatori, eliminati dal dataset): **0**
 - **Totale PoI finali nel dataset unificato: 381**
 
+## 1d. Eventi di TuttaPovo
+
+- Eventi letti: **178**, collegati a un punto della mappa: **142**
+- Miniature delle locandine: **29**
+- Eventi senza un luogo riconosciuto (fuori Povo, generici o non luoghi; per collegarli aggiungere una regola in raw_data/eventi_luoghi.csv):
+  - Chiesa di Villazzano - BASTA LA SALUTE PER ESSERE SALVI?
+  - Chiesa di Villazzano - BRICIOLE DI SALVEZZA: UN PERCORSO NELLA CONTEMPORANEITA'
+  - Circoscrizione sala consiglio
+  - Festa delle comunità parrocchiali di Povo e Villazzano
+  - Fotografare Povo nell'estate 24
+  - Gargazzone (BZ)
+  - Hotel Alexander Rivabella di Rimini
+  - Inviare foto articoli da pubblicare su Tuttapovo
+  - Invio di documenti, dediche o foto per la pubblicazione sul periodico
+  - L'associazione invita tutti coloro che fossero interessati a partecipare come an
+  - L'associazione invita tutti coloro che fossero interessati a partecipare come vo
+  - Malga Preghena Alta
+  - Oltrecastello
+  - Oratorio Villazzano
+  - POVO E OLTRECASTELLO
+  - Partenza da Povo ore 7.00
+  - Percorso presepi in vari luoghi del sobborgo
+  - Piazzale Merler
+  - Povo
+  - Povo e Oltrecastello
+  - Povo e dintorni
+  - SAT Povo organizza la Traversata al Monte Mulaz da Passo Valles alla Val Venegia
+  - Sala Consiglio
+  - Sala di Rappresentanza Pal. Geremia Trento Via Belenzani
+  - Sede del Circolo
+  - Sobborghi di Povo
+  - Trento Piedicastello piazzale Divisioni Alpine/Doss Trento Museo Nazionale Stori
+  - Trento Via S.Giovanni Bosco 4 Auditorium del Conservatorio
+  - Trimestrale Tuttapovo
+  - Ufficio circoscrizione di Povo
+  - Val d'Algone - Parco Naturale Adamello Brenta
+  - Vie e piazze di Povo
+  - centro sportivo Don Onorio Spada via valnigra 69 Villazzano
+  - centro sportivo don onorio spada via valnigra 69, 38123 villazzano trento
+
 ## 1c. Indirizzi dal civico più vicino (Comune di Trento)
 
 - PoI senza indirizzo prima di questo passaggio: **314**
