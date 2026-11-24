@@ -13,11 +13,36 @@ _Generato automaticamente da `python_pipeline/build_data.py`._
 - PoI solo OSM (nessun corrispondente locale): **434**
 - PoI iniettati manualmente (assenti da OSM e dal dataset locale): **0**
 - Impianti sportivi ad accesso privato rimossi (non solo esclusi dagli indicatori, eliminati dal dataset): **0**
-- **Totale PoI finali nel dataset unificato: 530**
+- **Totale PoI finali nel dataset unificato: 381**
+
+## 1c. Indirizzi dal civico più vicino (Comune di Trento)
+
+- PoI senza indirizzo prima di questo passaggio: **314**
+- Indirizzo assegnato dal civico più vicino (<= 15 m, raggiungibile a piedi): **60**
+- Civici vicini scartati perché non raggiungibili sul grafo pedonale: **12** (da verificare a mano: nelle piazze e nei cortili il grafo OSM non ha i passaggi interni)
+  - Fontanella / Piazza G. Manci 5: 12 m in linea d'aria, non raggiungibile
+  - Povo / "Centro Civico" / Via Salè 1: 13 m in linea d'aria, 66 m a piedi
+  - Fontanella / Via Celva 19: 8 m in linea d'aria, 173 m a piedi
+  - Fontanella / Via dei Rivi 18: 8 m in linea d'aria, 151 m a piedi
+  - Punto Informativo / Via Mesiano 2: 12 m in linea d'aria, 124 m a piedi
+  - Baita Moronar / Via Eremo 4: 4 m in linea d'aria, 239 m a piedi
+  - Parcheggio / Piazza Oltrecastello 1: 14 m in linea d'aria, 44 m a piedi
+  - Parcheggio / Piazzale Carlo Merler 2: 8 m in linea d'aria, 115 m a piedi
+  - Sala Living + Cucina + Prato - Casa Sociale / Via Salè 1: 10 m in linea d'aria, 212 m a piedi
+  - Salone Agorà - Casa Sociale / Via Salè 1: 8 m in linea d'aria, 124 m a piedi
+  - DAE - Defibrillatore / Piazza G. Manci 3: 9 m in linea d'aria, non raggiungibile
+  - Area picnic adiacente al Centro civico / Piazzale Carlo Merler 5: 13 m in linea d'aria, 75 m a piedi
+
+## 1a. Revisione della Circoscrizione (foglio "Dati PovoCivicHub")
+
+- Panchine eliminate: **129**
+- Altri PoI eliminati (escludere = Sì): **24**
+- Descrizioni della Circoscrizione applicate: **29** (+ 16 link "Approfondisci")
+- Foto attuali: **31**, foto storiche: **6**
 
 ## 1b. Mappatura servizi della Circoscrizione (PDF + Google My Maps)
 
-- Voci in `raw_data/mappatura_povo.csv`: **158** -> **86** unite a PoI esistenti, **55** nuovi PoI, **17** senza posizione
+- Voci in `raw_data/mappatura_povo.csv`: **162** -> **86** unite a PoI esistenti, **59** nuovi PoI, **17** senza posizione
 - Foto importate dalla My Maps: **61**
 - Allineamento OSM: le voci con `osm_id` vuoto non hanno (ancora) un corrispondente in OpenStreetMap.
 
@@ -83,7 +108,7 @@ _Generato automaticamente da `python_pipeline/build_data.py`._
 | Luoghi di interesse storico/artistico/naturalistico e fontane | 12 | Villa Gherta | My Maps | way/78363234 | nuovo PoI | allineato a OSM historic=manor, access=private |
 | Luoghi di interesse storico/artistico/naturalistico e fontane | 13 | "Sason" - Masso erratico | OSM | way/692657294 | nuovo PoI | assente in My Maps: posizione da OSM (natural=stone "El Sason") |
 | Luoghi di interesse storico/artistico/naturalistico e fontane | 14 | Stoi de Chegul | OSM | node/392388064 | unito a PoI esistente (osm_id) | da My Maps (non nel PDF); posizione: pannello OSM "Stoi del Chegul" (gli Stoi non sono mappati in OSM); sostituisce il vecchio PoI manuale |
-| Luoghi di interesse storico/artistico/naturalistico e fontane | 15 | Fontana dei Gai | OSM | node/392387223 | nuovo PoI | da My Maps (non nel PDF); nella My Maps sta in "Cultura": spostata tra le fontane; il nodo OSM ha solo il nome |
+| Luoghi di interesse storico/artistico/naturalistico e fontane | 15 | Fontana dei Gai | OSM | node/392387223 | nuovo PoI | da My Maps (non nel PDF); nella My Maps sta in "Cultura": spostata tra le fontane; node/392387223 è il toponimo (place=locality), la fontana come oggetto non è ancora in OSM |
 | Luoghi di interesse storico/artistico/naturalistico e fontane | 16 | Ponte Alto - ponte romano | OSM | way/1202532377 | nuovo PoI | da My Maps (non nel PDF, era in "Ristorazione"): è il ponte romano al confine, vicino al Ristorante La Gnoccata; posizione OSM man_made=bridge |
 | Servizi e attività economiche | 1 | Vigili del Fuoco Volontari | OSM | way/1266800064 | unito a PoI esistente (osm_id) | assente in My Maps: posizione da OSM |
 | Servizi e attività economiche | 2 | A.P.S.P. Margherita Grazioli - Casa Melograno - Centro Servizi | My Maps | way/161758820 | unito a PoI esistente (nome 93%) |  |
@@ -174,41 +199,45 @@ _Generato automaticamente da `python_pipeline/build_data.py`._
 | Percorsi escursionistici | 2 | Passeggiata sul Dos Sant'Agata - Salita Santa Lucia | My Maps |  | nuovo PoI (assente in OSM) |  |
 | Percorsi escursionistici | 3 | Passeggiata sul Dos Sant'Agata - Salita da Oltrecastello | OSM | node/8977889118 | nuovo PoI | estremità lato Oltrecastello del Sentiero Sant'Agata (OSM relation/14666008) |
 | Percorsi escursionistici | 4 | Passo Cimirlo ed escursioni sulle pendici della Marzola | My Maps | node/274232982 | nuovo PoI | allineato a OSM natural=saddle "Passo del Cimirlo" |
-| Percorsi escursionistici | 5 | Monte Celva ed il sentiero dei cento scalini | My Maps |  | nuovo PoI (assente in OSM) |  |
+| Percorsi escursionistici | 5 | Sentiero 419 Cima Celva | My Maps |  | nuovo PoI (assente in OSM) | nel PDF "Monte Celva ed il sentiero dei cento scalini": separato in tre voci (2026-11-24): questo sentiero SAT 419 parte dalla piazza di Oltrecastello (posizione e descrizione dalla My Maps), la vetta è "Monte Celva" (n. 19 tra i luoghi di interesse), i cento scalini sono il n. 8 |
 | Percorsi escursionistici | 6 | Sentiero attrezzato G. Bertotti | OSM | node/10868054072 | nuovo PoI | da My Maps (non nel PDF); partenza località Piani = cartello OSM "Piani" (il segnaposto My Maps era a 544 m) |
 | Percorsi escursionistici | 7 | Sentieri n. 455 e 456 (Sentiero del 50°) | OSM | node/274232982 | nuovo PoI | da My Maps (non nel PDF); partenza Passo del Cimirlo (OSM natural=saddle); tracciati SAT 455 = relation/7186805, 456 = relation/7184935 |
 | Mobilità | 1 | Piste ciclabili |  |  | non localizzato | tracciati lineari: non rappresentabili come punto |
 | Mobilità | 2 | Stazione Trento - Povo Mesiano | OSM | node/4922948640 | unito a PoI esistente (osm_id) | assente in My Maps: posizione da OSM |
 | Mobilità | 3 | Colonnina di ricarica elettrica - Piazza Manci | OSM | node/13989631523 | nuovo PoI | assente in My Maps: posizione da OSM |
 | Mobilità | 4 | Car sharing |  |  | non localizzato | nessuna postazione in OSM entro la circoscrizione |
+| Luoghi di interesse storico/artistico/naturalistico e fontane | 17 | Fontana Graffiano - antico lavatoio | OSM | node/676769466 | nuovo PoI | segnalata dalla Circoscrizione (revisione, riga 532); in OSM è solo amenity=fountain senza nome |
+| Luoghi di interesse storico/artistico/naturalistico e fontane | 18 | Piazza di Oltrecastello - via Ronchi | OSM | way/280643517 | nuovo PoI | segnalata dalla Circoscrizione (revisione, riga 531) |
+| Luoghi di interesse storico/artistico/naturalistico e fontane | 19 | Monte Celva | OSM | node/391038683 | nuovo PoI | vetta (natural=peak "Cima Celva"), separata dal sentiero dei cento scalini (2026-11-24) |
+| Percorsi escursionistici | 8 | Sentiero dei cento scalini | OSM | node/1764960513 | nuovo PoI | imbocco in basso (~849 m) dei gradini in galleria "Sentiero 100 scalini" (way/164887380, way/307646413); arrivo node/3128444686 (~870 m). Sentiero diverso dal 419 (confermato 2026-11-24) |
 
 ## 2. Arricchimento Dati (Wikidata)
 
-- PoI con tag `wikidata` verificati: **25**
-- Foto recuperate automaticamente: **19**
+- PoI con tag `wikidata` verificati: **26**
+- Foto recuperate automaticamente: **20**
 - Siti web recuperati automaticamente: **0**
 - _Nota: l'arricchimento è limitato ai PoI con tag `wikidata` OSM espliciti. Una ricerca per prossimità geografica su Wikidata/Commons per tutti i PoI non è stata implementata: sarebbe troppo lenta e poco affidabile (falsi positivi) per una pipeline eseguita ripetutamente._
 
 ## 2b. Verifica Immagini
 
-- PoI con `image_url` verificati: **96**
+- PoI con `image_url` verificati: **97**
 - Link non raggiungibili (ripuliti, il frontend mostra un placeholder): **0**
 
 ## 3. Qualità del Dato
 
-- `orari_apertura` compilato: **50 / 530**
-- `contatti` compilato: **40 / 530**
-- `image_url` compilato: **96 / 530**
-- `accessibilita_disabili` compilato: **41 / 530**
+- `orari_apertura` compilato: **50 / 381**
+- `contatti` compilato: **40 / 381**
+- `image_url` compilato: **121 / 381**
+- `accessibilita_disabili` compilato: **41 / 381**
 
 ## 4. Indice di Classe Civica (ICC) medio per categoria
 
 | Categoria | W_cat | ICC medio | N. PoI |
 |---|---|---|---|
-| cross_civic | 1.0 | 73.3 | 75 |
-| residenti | 0.8 | 63.4 | 209 |
-| occasionali | 0.6 | 42.2 | 182 |
-| pendolari | 0.4 | 48.5 | 64 |
+| cross_civic | 1.0 | 90.0 | 74 |
+| residenti | 0.8 | 78.0 | 113 |
+| occasionali | 0.6 | 52.9 | 134 |
+| pendolari | 0.4 | 62.0 | 60 |
 
 ## 5. Anomalie Rilevate
 
