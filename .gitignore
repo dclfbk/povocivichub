@@ -30,3 +30,13 @@ build/
 .vscode/
 .idea/
 .claude/
+
+# Loghi usati solo per prototipi in locale (es. city brand Trento, riservato ai
+# partner Visit Trento): mai nel repository né nel sito pubblicato.
+public/loghi/locale/
+
+# Foto originali della Circoscrizione e del dataset locale: pesanti (~70 MB) e
+# in parte di terzi. Nel sito vanno solo le versioni ridotte con copyright che
+# la pipeline scrive in public/data/foto/.
+raw_data/foto_circoscrizione/
+raw_data/foto_locali/

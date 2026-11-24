@@ -150,10 +150,14 @@ Percorsi escursionistici,1,Passeggiata sul Dos Sant'Agata - Salita Sant'Agata,In
 Percorsi escursionistici,2,Passeggiata sul Dos Sant'Agata - Salita Santa Lucia,Salita di S. Lucia fino al Doss S. Agata,,,,,
 Percorsi escursionistici,3,Passeggiata sul Dos Sant'Agata - Salita da Oltrecastello,,node/8977889118,osm,,,estremità lato Oltrecastello del Sentiero Sant'Agata (OSM relation/14666008)
 Percorsi escursionistici,4,Passo Cimirlo ed escursioni sulle pendici della Marzola,"Passo del Cimirlo - possibile punto di partenza giro del Chegul, ferrata Bertotti, ...",node/274232982,,,,"allineato a OSM natural=saddle ""Passo del Cimirlo"""
-Percorsi escursionistici,5,Monte Celva ed il sentiero dei cento scalini,Sentiero n° 419 Cima Celva,,,,,
+Percorsi escursionistici,5,Sentiero 419 Cima Celva,Sentiero n° 419 Cima Celva,,,,,"nel PDF ""Monte Celva ed il sentiero dei cento scalini"": separato in tre voci (2026-11-24): questo sentiero SAT 419 parte dalla piazza di Oltrecastello (posizione e descrizione dalla My Maps), la vetta è ""Monte Celva"" (n. 19 tra i luoghi di interesse), i cento scalini sono il n. 8"
 Percorsi escursionistici,6,Sentiero attrezzato G. Bertotti,Sentiero attrezzato G. Bertotti,node/10868054072,osm,,,"da My Maps (non nel PDF); partenza località Piani = cartello OSM ""Piani"" (il segnaposto My Maps era a 544 m)"
 Percorsi escursionistici,7,Sentieri n. 455 e 456 (Sentiero del 50°),Sentieri n° 455 e n° 456 (Sentiero del 50°),node/274232982,osm,,,"da My Maps (non nel PDF); partenza Passo del Cimirlo (OSM natural=saddle); tracciati SAT 455 = relation/7186805, 456 = relation/7184935"
 Mobilità,1,Piste ciclabili,,,,,,tracciati lineari: non rappresentabili come punto
 Mobilità,2,Stazione Trento - Povo Mesiano,,node/4922948640,osm,,,assente in My Maps: posizione da OSM
 Mobilità,3,Colonnina di ricarica elettrica - Piazza Manci,,node/13989631523,osm,,,assente in My Maps: posizione da OSM
 Mobilità,4,Car sharing,,,,,,nessuna postazione in OSM entro la circoscrizione
+Luoghi di interesse storico/artistico/naturalistico e fontane,17,Fontana Graffiano - antico lavatoio,,node/676769466,osm,,,"segnalata dalla Circoscrizione (revisione, riga 532); in OSM è solo amenity=fountain senza nome"
+Luoghi di interesse storico/artistico/naturalistico e fontane,18,Piazza di Oltrecastello - via Ronchi,,way/280643517,osm,,,"segnalata dalla Circoscrizione (revisione, riga 531)"
+Luoghi di interesse storico/artistico/naturalistico e fontane,19,Monte Celva,,node/391038683,osm,,,"vetta (natural=peak ""Cima Celva""), separata dal sentiero dei cento scalini (2026-11-24)"
+Percorsi escursionistici,8,Sentiero dei cento scalini,,node/1764960513,osm,,,"imbocco in basso (~849 m) dei gradini in galleria ""Sentiero 100 scalini"" (way/164887380, way/307646413); arrivo node/3128444686 (~870 m). Sentiero diverso dal 419 (confermato 2026-11-24)"

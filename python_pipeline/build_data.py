@@ -48,10 +48,10 @@ Povo Civic Hub - Geographic Data Analysis Pipeline (ICC Edition, outdoor-sport f
    - 'cross_civic' (W=1.0, Oldenburg Third Places), 'residenti' (W=0.8,
      Klinenberg neighborhood infrastructure), 'occasionali' (W=0.6, outdoor/
      historic/leisure), 'pendolari' (W=0.4, academic/commuter flow hubs).
-   - ICC = (0.4706*W_cat + 0.2941*A_bus + 0.2353*Q_data) * 100 -- A_bus is a
+   - ICC = (0.6154*W_cat + 0.3846*A_bus) * 100 -- A_bus is a
      network-distance decay factor to the nearest bus/rail stop (pedestrian
-     graph, no redundant second download) and Q_data is the share of key
-     fields populated. The original formula's P_park term was dropped and the
+     graph, no redundant second download). Q_data (share of key fields
+     populated) is computed but no longer part of ICC. The original formula's P_park term was dropped and the
      remaining weights renormalized (parking distance is still computed as
      its own d_parking_m indicator, just no longer scored into ICC/mix_index).
 
@@ -65,6 +65,8 @@ Povo Civic Hub - Geographic Data Analysis Pipeline (ICC Edition, outdoor-sport f
    - public/data/report_elaborazione.md (coverage, enrichment, ICC, anomalies)
 """
 
+import csv
+import json
 import os
 import re
 import math
@@ -181,8 +183,14 @@ SPORT_FACILITY_ICONS = {'sport', 'basketball_court', 'volleyball_court', 'tennis
 # other shop/amenity types this list doesn't otherwise cover).
 TAKEAWAY_FOOD_SUB_TYPES = {'fast_food', 'restaurant', 'pub', 'bar', 'cafe'}
 
-# Fields whose fill-rate makes up the ICC's Q_data (data quality) component.
+# Fields counted in the report's data-completeness section.
 KEY_QUALITY_FIELDS = ['orari_apertura', 'contatti', 'image_url', 'accessibilita_disabili']
+# Fields that feed ICC's Q_data term. image_url is deliberately left out
+# (2026-11-24): whether someone photographed a place says nothing about its
+# civic role, yet it moved ICC by ~6 points as soon as review photos arrived.
+# KEY_QUALITY_FIELDS (with the photo) still drives the report's
+# data-completeness counts.
+ICC_QUALITY_FIELDS = ['orari_apertura', 'contatti', 'accessibilita_disabili']
 
 
 def load_boundary():
@@ -1255,6 +1263,12 @@ def _clean(value):
     return '' if text in ('-', 'nan', 'None') else text
 
 
+def parse_local_date(value):
+    """The local dataset's 'd/m/yyyy' dates -> ISO 'yyyy-mm-dd' ('' if absent/unparseable)."""
+    m = re.match(r'^\s*(\d{1,2})/(\d{1,2})/(\d{4})\s*$', _clean(value))
+    return f'{m.group(3)}-{int(m.group(2)):02d}-{int(m.group(1)):02d}' if m else ''
+
+
 def build_orari_apertura(row):
     """Build a human-readable weekly schedule string from the day-of-week columns."""
     periodo = _clean(row.get('periodo_apertura', ''))
@@ -1344,6 +1358,7 @@ def load_local_dataset(path):
             'amenity_type': amenity_type,
             'social_function': SOCIAL_FUNCTION_BY_CATEGORY[category],
             'image_url': _clean(row.get('foto', '')),
+            'data_fonte_locale': parse_local_date(row.get('data_aggiornamento', '')),
             'indirizzo': normalize_local_indirizzo(row.get('indirizzo', '')),
             'orari_apertura': build_orari_apertura(row),
             'contatti': contatti,
@@ -1576,7 +1591,40 @@ MAPPATURA_INPUT = "../raw_data/mappatura_povo.csv"
 # looked up by id (fetch_osm_elements).
 MAPPATURA_COORD_OSM = 'osm'
 OSM_ELEMENTS_CACHE = "cache/mappatura_osm_elements.json"
-OVERPASS_URL = "https://overpass-api.de/api/interpreter"
+# overpass-api.de refuses connections from the FBK network (2026-11-24), so
+# the pipeline's own Overpass queries try these instances in order (osmnx
+# keeps its default endpoint and cache, see pick_overpass_url).
+OVERPASS_URLS = [
+    "https://overpass-api.de/api/interpreter",
+    "https://overpass.openstreetmap.fr/api/interpreter",
+    "https://maps.mail.ru/osm/tools/overpass/api/interpreter",
+    "https://overpass.kumi.systems/api/interpreter",
+]
+OVERPASS_URL = OVERPASS_URLS[0]
+
+
+def pick_overpass_url():
+    """First Overpass instance that answers a trivial query; used by the pipeline's own queries (not osmnx)."""
+    global OVERPASS_URL
+    for url in OVERPASS_URLS:
+        try:
+            r = requests.post(url, data={'data': '[out:json][timeout:10];node(1);out ids;'},
+                              headers=WIKIDATA_HEADERS, timeout=45)
+            if r.status_code == 200:
+                OVERPASS_URL = url
+                # osmnx is deliberately NOT pointed at the mirror: its disk
+                # cache is keyed on the endpoint URL, and on 2026-11-24 a
+                # switch to maps.mail.ru bypassed the cache and got back zero
+                # PoIs (dataset dropped from 381 to 140). osmnx keeps the
+                # default endpoint + cache; update_data.sh's fresh fetch needs
+                # overpass-api.de reachable (run it from another network).
+                print("--> Using Overpass instance:", url)
+                return url
+        except requests.RequestException:
+            pass
+        print("    Overpass instance not usable:", url)
+    print("    Warning: no Overpass instance answered; keeping", OVERPASS_URL)
+    return OVERPASS_URL
 
 # `osm_id` value marking a sub-space of a bigger place ("Palestra presso APSP")
 # that must stay its own PoI instead of renaming the place it sits in.
@@ -1659,6 +1707,7 @@ MAPPATURA_KEYWORDS = [
     ('basket', 'occasionali', 'basketball_court', 'pitch', 'Campo da basket'),
     ('volley', 'occasionali', 'volleyball_court', 'pitch', 'Campo da pallavolo'),
     ('calisthenics', 'occasionali', 'fitness_station', 'fitness_station', 'Area Fitness'),
+    ('monte ', 'occasionali', 'peak', 'peak', 'Vetta'),
     ('falesi', 'occasionali', 'climbing', 'climbing', "Falesia d'Arrampicata"),
     ('piscina', 'occasionali', 'sport', 'sports_centre', 'Piscina'),
     ('palestra', 'occasionali', 'sports_hall', 'sports_hall', 'Palestra'),
@@ -1829,11 +1878,110 @@ def fetch_osm_elements(osm_ids):
                 break
             except Exception as e:
                 print(f"    Overpass id lookup failed (attempt {attempt + 1}):", e)
+                if isinstance(e, requests.ConnectionError):
+                    break  # host unreachable from this network: retrying won't help
                 time.sleep(15)
+        # Fallback: the main OSM API (2026-11-24: overpass-api.de refuses
+        # connections from the FBK network while api.openstreetmap.org works).
+        for osm_id in missing:
+            if osm_id in cache:
+                continue
+            kind, num = osm_id.split('/')
+            try:
+                url = f"{OSM_API}/{kind}/{num}{'/full' if kind != 'node' else ''}.json"
+                resp = requests.get(url, headers=WIKIDATA_HEADERS, timeout=30)
+                resp.raise_for_status()
+                els = resp.json()['elements']
+                main = next(el for el in els if el['type'] == kind and str(el['id']) == num)
+                nodes = [el for el in els if el['type'] == 'node' and 'lat' in el]
+                if kind != 'node':
+                    # Centroid of the member nodes: good enough for a PoI pin.
+                    nodes = [el for el in nodes if el['id'] in set(main.get('nodes', []))] or nodes
+                lon = sum(n['lon'] for n in nodes) / len(nodes)
+                lat = sum(n['lat'] for n in nodes) / len(nodes)
+                cache[osm_id] = {'c': (lon, lat), 't': main.get('tags', {})}
+            except Exception as e:
+                print(f"    OSM API lookup failed for {osm_id}:", e)
         os.makedirs(os.path.dirname(OSM_ELEMENTS_CACHE), exist_ok=True)
         with open(OSM_ELEMENTS_CACHE, 'w') as f:
             json.dump(cache, f)
     return {i: cache[i] for i in osm_ids if i in cache}
+
+
+# --- Data di creazione (2026-10-14 feedback) -----------------------------------
+# "Data di origine della fonte": for OSM-linked PoIs the timestamp of the
+# element's FIRST version; otherwise the local dataset's own compilation date
+# (`data_aggiornamento`). My Maps-only PoIs have none (the KML carries no
+# dates). A v1 timestamp never changes, so the cache lives in raw_data/ and,
+# unlike cache/, survives update_data.sh -- only new elements are fetched.
+OSM_CREATION_DATES = "../raw_data/osm_date_creazione.json"
+OSM_API = "https://api.openstreetmap.org/api/0.6"
+OSM_API_CHUNK = 100
+
+
+def fetch_osm_creation_dates(osm_ids):
+    """{'node/1': '2009-05-08', ...}: date of each element's version 1 (OSM API multi-fetch)."""
+    import json
+
+    cache = {}
+    if os.path.exists(OSM_CREATION_DATES):
+        with open(OSM_CREATION_DATES) as f:
+            cache = json.load(f)
+    missing = sorted({i for i in osm_ids if i not in cache})
+    by_type = {}
+    for osm_id in missing:
+        kind, num = osm_id.split('/')
+        by_type.setdefault(kind, []).append(num)
+
+    def fetch(kind, nums):
+        url = f"{OSM_API}/{kind}s.json?{kind}s=" + ','.join(f'{n}v1' for n in nums)
+        resp = requests.get(url, headers=WIKIDATA_HEADERS, timeout=60)
+        resp.raise_for_status()
+        return {f"{el['type']}/{el['id']}": el['timestamp'][:10] for el in resp.json()['elements']}
+
+    for kind, nums in by_type.items():
+        for i in range(0, len(nums), OSM_API_CHUNK):
+            chunk = nums[i:i + OSM_API_CHUNK]
+            try:
+                cache.update(fetch(kind, chunk))
+            except Exception:
+                # One redacted/unavailable v1 fails the whole batch: retry one by one.
+                for num in chunk:
+                    try:
+                        cache.update(fetch(kind, [num]))
+                    except Exception as e:
+                        print(f"    No creation date for {kind}/{num}:", e)
+    if missing:
+        with open(OSM_CREATION_DATES, 'w') as f:
+            json.dump(dict(sorted(cache.items())), f, indent=0)
+    return {i: cache[i] for i in osm_ids if i in cache}
+
+
+def add_creation_dates(gdf_utm, gdf_wgs84):
+    """Fill `data_creazione` (ISO date) and `data_creazione_fonte` for every PoI."""
+    print("--> Adding source creation dates (OSM first version / local dataset)...")
+    osm_ids = {i for i in gdf_wgs84['osm_id'] if isinstance(i, str) and re.match(r'^(node|way|relation)/\d+$', i)}
+    osm_dates = fetch_osm_creation_dates(osm_ids)
+    local_dates = gdf_wgs84['data_fonte_locale'] if 'data_fonte_locale' in gdf_wgs84.columns else pd.Series('', index=gdf_wgs84.index)
+
+    dates, sources = [], []
+    for idx in gdf_wgs84.index:
+        osm_id = gdf_wgs84.at[idx, 'osm_id']
+        local = local_dates.at[idx]
+        if osm_id in osm_dates:
+            dates.append(osm_dates[osm_id]); sources.append('OpenStreetMap')
+        elif isinstance(local, str) and local:
+            dates.append(local); sources.append('Dataset Circoscrizione')
+        else:
+            dates.append(''); sources.append('')
+    for gdf in (gdf_utm, gdf_wgs84):
+        gdf['data_creazione'] = dates
+        gdf['data_creazione_fonte'] = sources
+        if 'data_fonte_locale' in gdf.columns:
+            gdf.drop(columns=['data_fonte_locale'], inplace=True)
+    n_osm = sources.count('OpenStreetMap'); n_local = sources.count('Dataset Circoscrizione')
+    print(f"    Creation dates: {n_osm} from OSM, {n_local} from the local dataset, {len(sources) - n_osm - n_local} without.")
+    return gdf_utm, gdf_wgs84
 
 
 def download_mymaps_photo(url):
@@ -2205,6 +2353,12 @@ def _image_url_is_reachable(url):
             if wait is None:
                 return True
             time.sleep(wait)
+    except (requests.ConnectionError, requests.Timeout):
+        # Host unreachable from *this* network (2026-11-24: i.postimg.cc and
+        # gis.comune.trento.it don't route from the FBK network). That says
+        # nothing about the link itself, so keep it, as with the 429 case.
+        print("    Warning: could not reach", url, "- keeping it")
+        return True
     except Exception:
         return False
 
@@ -2241,6 +2395,295 @@ def verify_image_urls(gdf_utm, gdf_wgs84):
 # the per-PoI fatica index (see calculate_accessibility_distances) is provably
 # the same formula, evaluated at grade=0, rather than a separately-hardcoded
 # number that could drift out of sync.
+# Circoscrizione review (Ilaria & Ornella, autumn 2026). The Google Sheet
+# "Dati PovoCivicHub" is a row-per-PoI review of the map; its tab "Abbinamento
+# mappa" links each row number (n) to our PoI id. raw_data/revisione_
+# circoscrizione.csv is a snapshot of both joined. Rows whose name/ICC/vocazione
+# were identical (mostly benches) can't be told apart, but within every such
+# group the reviewers gave the same decision, so any assignment is equivalent.
+# Photos live in raw_data/foto_circoscrizione/ named
+#   N-K-ANNO-FONTE.ext      (current photo K of row N)
+#   N-K-S-ANNO-FONTE.ext    (historical photo; ANNO may be "ANNI 60", "XXXX")
+# with N the sheet row number ("133 bis" = an extra entry with no row yet).
+REVISIONE_INPUT = "../raw_data/revisione_circoscrizione.csv"
+REVISIONE_FOTO_DIR = "../raw_data/foto_circoscrizione"
+REVISIONE_FOTO_MAX_PX = 1200
+_REVISIONE_FOTO_RE = re.compile(
+    r'^(?P<n>\d+(?: bis)?)[-_](?P<k>\d+)[-_](?:(?P<s>S)[-_])?(?P<anno>[^-_]+(?: \d+)?)[-_]+(?P<fonte>.+)$'
+)
+
+
+def _parse_revisione_foto(filename):
+    stem, ext = os.path.splitext(filename)
+    m = _REVISIONE_FOTO_RE.match(stem)
+    if not m or ext.lower() not in ('.jpg', '.jpeg', '.png', '.webp'):
+        return None
+    fonte = re.sub(r'^https?[_:/]+', '', m['fonte']).strip(' _-')
+    anno = m['anno'].strip()
+    n_num, _, n_bis = m['n'].partition(' ')
+    return {
+        'n': str(int(n_num)) + (' ' + n_bis if n_bis else ''), 'k': int(m['k']), 'storica': bool(m['s']),
+        'anno': '' if set(anno.upper()) <= {'X'} else anno.replace('?', '').strip(),
+        'fonte': fonte, 'file': filename,
+    }
+
+
+# Sources as they appear in file names -> how they're credited on the photo.
+FOTO_FONTE_ESTESA = {
+    'Circoscrizione': 'Circoscrizione di Povo',
+    'Sito Comune TN': 'Comune di Trento',
+}
+# Photos the local dataset (dati_circoscrizione.geojson) hot-linked on
+# i.postimg.cc, saved into raw_data/foto_locali/<postimg id>.<ext> so the site
+# doesn't depend on that host (2026-11-24: it's unreachable from some networks).
+FOTO_LOCALI_DIR = "../raw_data/foto_locali"
+FOTO_LOCALI_CREDIT = 'Circoscrizione di Povo'
+
+
+def _watermark(img, text):
+    """Burn a small '© text' credit into the bottom-right corner (white on a dark band)."""
+    from PIL import ImageDraw, ImageFont
+
+    w, h = img.size
+    size = max(12, round(min(w, h) * 0.035))
+    try:
+        font = ImageFont.truetype('DejaVuSans.ttf', size)
+    except OSError:
+        try:
+            font = ImageFont.truetype('/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf', size)
+        except OSError:
+            font = ImageFont.load_default(size=size)
+    draw = ImageDraw.Draw(img, 'RGBA')
+    l, t, r, b = draw.textbbox((0, 0), text, font=font)
+    pad = round(size * 0.4)
+    x, y = w - (r - l) - 2 * pad, h - (b - t) - 2 * pad
+    draw.rectangle([x, y, w, h], fill=(0, 0, 0, 140))
+    draw.text((x + pad - l, y + pad - t), text, font=font, fill=(255, 255, 255, 235))
+    return img
+
+
+def _rehost_photo(src_path, fname, credit):
+    """Downsize + watermark one photo into public/data/foto/; returns its public path or ''."""
+    from PIL import Image
+
+    out_path = os.path.join(FOTO_OUTPUT_DIR, fname)
+    # Rebuilt every run: cheap (~40 files) and keeps the credit in sync with the file name.
+    try:
+        img = Image.open(src_path).convert('RGB')
+        img.thumbnail((REVISIONE_FOTO_MAX_PX, REVISIONE_FOTO_MAX_PX))
+        if credit:
+            img = _watermark(img, '© ' + credit)
+        os.makedirs(FOTO_OUTPUT_DIR, exist_ok=True)
+        img.save(out_path, 'JPEG', quality=82, optimize=True)
+    except Exception as e:
+        print(f"    Warning: photo {src_path} could not be converted: {e}")
+        return ''
+    return FOTO_PUBLIC_PREFIX + fname
+
+
+def _foto_credit(foto):
+    """'© Circoscrizione di Povo, 2026' / '© archivio Claudia Bonvecchio, 1955'."""
+    fonte = FOTO_FONTE_ESTESA.get(foto['fonte'], foto['fonte'])
+    return ', '.join(p for p in (fonte, foto['anno'].lower() if foto['anno'].isupper() else foto['anno']) if p)
+
+
+def _rehost_revisione_foto(foto):
+    n_slug = foto['n'].replace(' ', '')
+    fname = f"circ_{n_slug}-{foto['k']}{'-S' if foto['storica'] else ''}.jpg"
+    return _rehost_photo(os.path.join(REVISIONE_FOTO_DIR, foto['file']), fname, _foto_credit(foto))
+
+
+def rehost_postimg_photos(gdf_utm, gdf_wgs84):
+    """Replace i.postimg.cc image_url with the local copy in raw_data/foto_locali/, when present."""
+    n = 0
+    if not os.path.isdir(FOTO_LOCALI_DIR):
+        return 0
+    local = {os.path.splitext(f)[0]: f for f in os.listdir(FOTO_LOCALI_DIR)}
+    for idx, url in gdf_utm['image_url'].items():
+        m = re.match(r'https?://i\.postimg\.cc/([^/]+)/', str(url))
+        if not m or m.group(1) not in local:
+            continue
+        public = _rehost_photo(os.path.join(FOTO_LOCALI_DIR, local[m.group(1)]),
+                               f"locale_{m.group(1)}.jpg", FOTO_LOCALI_CREDIT)
+        if public:
+            for g in (gdf_utm, gdf_wgs84):
+                g.at[idx, 'image_url'] = public
+                g.at[idx, 'image_credit'] = FOTO_LOCALI_CREDIT
+            n += 1
+    return n
+
+
+def _foto_caption(foto):
+    return _foto_credit(foto)
+
+
+def apply_revisione_circoscrizione(gdf_utm, gdf_wgs84):
+    """
+    Apply the Circoscrizione review: drop every bench and every row marked
+    escludere=Sì, let their descriptions win over OSM/mappatura ones, and attach
+    their photos (current -> image_url, historical -> image_storica_url).
+    """
+    print("--> Applying the Circoscrizione review (exclusions, descriptions, photos)...")
+    stats = {'benches_removed': 0, 'excluded': 0, 'descrizioni': 0, 'link_approfondimento': 0,
+             'foto_attuali': 0, 'foto_storiche': 0, 'foto_senza_punto': [], 'righe_senza_punto': []}
+    gdf_utm = gdf_utm.copy()
+    gdf_wgs84 = gdf_wgs84.copy()
+    for col in ('approfondimento_url', 'image_credit', 'image_storica_url', 'image_storica_credit'):
+        gdf_utm[col] = ''
+        gdf_wgs84[col] = ''
+
+    # 1. Benches go entirely (2026-11-24 decision), whatever their review row says.
+    bench_mask = gdf_utm['sub_type'] == 'bench'
+    stats['benches_removed'] = int(bench_mask.sum())
+
+    if not os.path.exists(REVISIONE_INPUT):
+        print(f"    {REVISIONE_INPUT} not found: only benches removed.")
+        rows = []
+    else:
+        with open(REVISIONE_INPUT, encoding='utf-8') as fh:
+            rows = list(csv.DictReader(fh))
+
+    ids = gdf_utm['id'].astype(str)
+    id_to_idx = {i: idx for idx, i in zip(gdf_utm.index, ids)}
+    vocazioni_fisse = {}
+    stats['vocazioni_fisse'] = vocazioni_fisse
+    n_to_idx = {}
+    excluded_ids = set()
+    for row in rows:
+        pid = (row.get('id') or '').strip()
+        if not pid or pid not in id_to_idx:
+            if pid or (row.get('escludere') or '').strip() == 'da inserire':
+                stats['righe_senza_punto'].append(f"{row['n']} {row['nome']}")
+            continue
+        idx = id_to_idx[pid]
+        n_to_idx[row['n'].strip()] = idx
+        if (row.get('escludere') or '').strip() == 'Sì':
+            excluded_ids.add(pid)
+            continue
+        # Moves requested by the Circoscrizione, placed on their stated
+        # address via the Comune's house numbers (2026-11-24).
+        lat, lon = (row.get('lat') or '').strip(), (row.get('lon') or '').strip()
+        if lat and lon:
+            pt_wgs = Point(float(lon), float(lat))
+            pt_utm = gpd.GeoSeries([pt_wgs], crs=WGS84_CRS).to_crs(TARGET_CRS).iloc[0]
+            gdf_wgs84.at[idx, 'geometry'] = pt_wgs
+            gdf_utm.at[idx, 'geometry'] = pt_utm
+            geouri = f'geo:{float(lat):.6f},{float(lon):.6f}'
+            gdf_utm.at[idx, 'geouri'] = geouri
+            gdf_wgs84.at[idx, 'geouri'] = geouri
+            stats['spostati'] = stats.get('spostati', 0) + 1
+        for field, col in (('indirizzo_nuovo', 'indirizzo'), ('tipo_servizio', 'amenity_type')):
+            val = (row.get(field) or '').strip()
+            if val:
+                gdf_utm.at[idx, col] = val
+                gdf_wgs84.at[idx, col] = val
+        voc = (row.get('vocazione_secondaria') or '').strip()
+        if voc:
+            vocazioni_fisse[pid] = voc
+        nome_nuovo = (row.get('nome_nuovo') or '').strip()
+        if nome_nuovo:
+            # Renames requested by the Circoscrizione (orange cells in the
+            # sheet, approved 2026-11-24).
+            gdf_utm.at[idx, 'name'] = nome_nuovo
+            gdf_wgs84.at[idx, 'name'] = nome_nuovo
+            stats['rinominati'] = stats.get('rinominati', 0) + 1
+        descr = (row.get('descrizione') or '').strip()
+        if descr.lower() in ('', 'da inserire'):
+            continue
+        if re.fullmatch(r'https?://\S+', descr):
+            # A bare link (e.g. the parish centenary PDF): shown as "Approfondisci".
+            gdf_utm.at[idx, 'approfondimento_url'] = descr
+            gdf_wgs84.at[idx, 'approfondimento_url'] = descr
+            stats['link_approfondimento'] += 1
+        else:
+            # Their text wins over OSM / mappatura descriptions (2026-11-24).
+            gdf_utm.at[idx, 'descrizione'] = descr
+            gdf_wgs84.at[idx, 'descrizione'] = descr
+            stats['descrizioni'] += 1
+
+    stats['foto_locali'] = rehost_postimg_photos(gdf_utm, gdf_wgs84)
+
+    # 2. Photos, keyed on the sheet row number.
+    fotos = []
+    if os.path.isdir(REVISIONE_FOTO_DIR):
+        for f in sorted(os.listdir(REVISIONE_FOTO_DIR)):
+            foto = _parse_revisione_foto(f)
+            if foto is None:
+                if not f.startswith('.'):
+                    stats['foto_senza_punto'].append(f + ' (nome non riconosciuto)')
+                continue
+            fotos.append(foto)
+    # Photos are grouped per "view": row N and its variants "N bis", "N ter"
+    # are the same place shot from different viewpoints (2026-11-24). Each
+    # view's first historical + first current photo form a comparison pair
+    # for the popup's allora/oggi slider; a place can have several pairs,
+    # switched with buttons. Pairs are ordered newest current photo first.
+    views = {}
+    for foto in sorted(fotos, key=lambda x: (x['n'], x['storica'], x['k'])):
+        base = foto['n'].split(' ')[0]
+        idx = n_to_idx.get(base)
+        if idx is None:
+            stats['foto_senza_punto'].append(foto['file'])
+            continue
+        public = _rehost_revisione_foto(foto)
+        if not public:
+            continue
+        view = views.setdefault((idx, foto['n']), {})
+        key = 'old' if foto['storica'] else 'new'
+        if key not in view:  # first current / first historical photo per view
+            view[key] = {'url': public, 'credit': _foto_caption(foto),
+                         'anno': foto['anno'].lower() if foto['anno'].isupper() else foto['anno']}
+            stats['foto_storiche' if foto['storica'] else 'foto_attuali'] += 1
+
+    def _year(v):
+        m = re.search(r'\d{4}', v.get('new', {}).get('anno', ''))
+        return int(m.group()) if m else 0
+
+    gdf_utm['foto_coppie'] = ''
+    gdf_wgs84['foto_coppie'] = ''
+    by_poi = {}
+    for (idx, _n), view in views.items():
+        by_poi.setdefault(idx, []).append(view)
+    for idx, vlist in by_poi.items():
+        vlist.sort(key=_year, reverse=True)
+        pairs = [v for v in vlist if 'old' in v and 'new' in v]
+        new_only = next((v['new'] for v in vlist if 'new' in v), None)
+        old_only = next((v['old'] for v in vlist if 'old' in v), None)
+        main_new = pairs[0]['new'] if pairs else new_only
+        main_old = pairs[0]['old'] if pairs else old_only
+        for g in (gdf_utm, gdf_wgs84):
+            # A review photo replaces any OSM/Wikidata/My Maps one.
+            if main_new:
+                g.at[idx, 'image_url'] = main_new['url']
+                g.at[idx, 'image_credit'] = main_new['credit']
+            if main_old:
+                g.at[idx, 'image_storica_url'] = main_old['url']
+                g.at[idx, 'image_storica_credit'] = main_old['credit']
+            if pairs:
+                # JSON string: GeoJSON/MapLibre properties can't carry nested arrays.
+                g.at[idx, 'foto_coppie'] = json.dumps([
+                    {'old': v['old']['url'], 'old_credit': v['old']['credit'],
+                     'new': v['new']['url'], 'new_credit': v['new']['credit'],
+                     'label': f"{v['old']['anno'] or 'allora'} ↔ {v['new']['anno'] or 'oggi'}"}
+                    for v in pairs
+                ], ensure_ascii=False)
+        stats['coppie'] = stats.get('coppie', 0) + len(pairs)
+
+    drop_mask = bench_mask | ids.isin(excluded_ids)
+    stats['excluded'] = int((ids.isin(excluded_ids) & ~bench_mask).sum())
+    gdf_utm = gdf_utm.loc[~drop_mask].reset_index(drop=True)
+    gdf_wgs84 = gdf_wgs84.loc[~drop_mask.values].reset_index(drop=True)
+    print(f"    Removed {stats['benches_removed']} benches and {stats['excluded']} other excluded PoIs; "
+          f"{stats['descrizioni']} descriptions, {stats['link_approfondimento']} links, "
+          f"{stats['foto_attuali']} current + {stats['foto_storiche']} historical photos applied, "
+          f"{stats.get('coppie', 0)} allora/oggi pairs, {stats.get('rinominati', 0)} renamed, {stats.get('spostati', 0)} moved.")
+    if stats['righe_senza_punto']:
+        print("    Review rows with no PoI on the map:", ', '.join(stats['righe_senza_punto']))
+    if stats['foto_senza_punto']:
+        print("    Photos not attached:", ', '.join(stats['foto_senza_punto']))
+    return gdf_utm, gdf_wgs84, stats
+
+
 def tobler_speed_kmh(grade):
     return 6.0 * math.exp(-3.5 * abs(grade + 0.05))
 
@@ -2548,6 +2991,97 @@ def calculate_accessibility_distances(gdf_pois_utm, G_utm, raw_pois_utm):
     return gdf_pois_utm
 
 
+# --- Indirizzo dal civico più vicino (Comune di Trento, 2026-11-24) -----------
+# Numeri civici from the Comune's GIS (toponomastica/civici_web, CC0),
+# clipped to Povo + 150 m in raw_data/comune/civici_povo.geojson. Used only
+# for PoIs that still have no address after the local dataset and OSM. A
+# civico is a candidate within CIVICO_MAX_M straight-line; among candidates the
+# one closest along the pedestrian graph wins, and it's rejected when the walk
+# is much longer than the straight line (a civico across a wall/river/railway
+# isn't "the" address of the PoI). The result is marked "(civico più vicino)".
+CIVICI_INPUT = "../raw_data/comune/civici_povo.geojson"
+CIVICO_MAX_M = 15
+CIVICO_MAX_DETOUR_M = 30  # walk may exceed the straight line by at most this
+CIVICO_SUFFIX = ' (civico più vicino)'
+_LOWER_WORDS = {'di', 'del', 'della', 'delle', 'dei', 'degli', 'da', 'dal', 'alla', 'alle', 'al', 'ai',
+                'allo', 'agli', 'e', 'in', 'sul', 'sulla', 'per'}
+
+
+def _format_desvia(desvia):
+    """'VIA SALE'' -> 'Via Salè', 'LOCALITA' PASSO CIMIRLO' -> 'Località Passo Cimirlo'."""
+    accent = {'A': 'à', 'E': 'è', 'I': 'ì', 'O': 'ò', 'U': 'ù'}
+    words = []
+    for k, w in enumerate(desvia.strip().split()):
+        if len(w) > 1 and w.endswith("'") and w[-2].upper() in accent:
+            w = w[:-2] + accent[w[-2].upper()]
+        low = w.lower()
+        words.append(low if k and low in _LOWER_WORDS else low[:1].upper() + low[1:])
+    return ' '.join(words)
+
+
+def fill_indirizzo_from_civici(gdf_utm, gdf_wgs84, G_utm):
+    print("--> Filling missing addresses from the Comune's house numbers (civico più vicino)...")
+    stats = {'senza_indirizzo': 0, 'assegnati': 0, 'scartati_grafo': 0}
+    if not os.path.exists(CIVICI_INPUT):
+        print(f"    {CIVICI_INPUT} not found, skipped.")
+        return gdf_utm, gdf_wgs84, stats
+    civ = gpd.read_file(CIVICI_INPUT).to_crs(TARGET_CRS).reset_index(drop=True)
+    G_und = G_utm.to_undirected()
+    gdf_utm = gdf_utm.copy()
+    gdf_wgs84 = gdf_wgs84.copy()
+    missing = gdf_utm.index[gdf_utm['indirizzo'].fillna('').astype(str).str.strip() == '']
+    stats['senza_indirizzo'] = len(missing)
+    if len(missing) == 0:
+        return gdf_utm, gdf_wgs84, stats
+    sindex = civ.sindex
+    civ_nodes = ox.distance.nearest_nodes(G_und, civ.geometry.x.values, civ.geometry.y.values)
+    civ_snap = [civ.geometry.iloc[k].distance(Point(G_und.nodes[n]['x'], G_und.nodes[n]['y']))
+                for k, n in enumerate(civ_nodes)]
+    for idx in missing:
+        pt = gdf_utm.geometry.loc[idx]
+        if pt is None or pt.is_empty:
+            continue
+        pt = pt.centroid
+        cand = [k for k in sindex.query(pt.buffer(CIVICO_MAX_M)) if civ.geometry.iloc[k].distance(pt) <= CIVICO_MAX_M]
+        if not cand:
+            continue
+        p_node = ox.distance.nearest_nodes(G_und, pt.x, pt.y)
+        p_snap = pt.distance(Point(G_und.nodes[p_node]['x'], G_und.nodes[p_node]['y']))
+        lengths = nx.single_source_dijkstra_path_length(G_und, p_node, cutoff=CIVICO_MAX_M + CIVICO_MAX_DETOUR_M + 200,
+                                                        weight='length')
+        best, best_walk = None, None
+        for k in cand:
+            if civ_nodes[k] not in lengths:
+                continue
+            walk = p_snap + lengths[civ_nodes[k]] + civ_snap[k]
+            # Same node / adjacent nodes: the walk is just the two snaps, which
+            # over-states it; never let it be shorter than the straight line.
+            walk = max(walk if civ_nodes[k] != p_node else civ.geometry.iloc[k].distance(pt), 0)
+            if walk - civ.geometry.iloc[k].distance(pt) > CIVICO_MAX_DETOUR_M:
+                continue
+            if best_walk is None or walk < best_walk:
+                best, best_walk = k, walk
+        if best is None:
+            stats['scartati_grafo'] += 1
+            k = min(cand, key=lambda k: civ.geometry.iloc[k].distance(pt))
+            walk = (p_snap + lengths[civ_nodes[k]] + civ_snap[k]) if civ_nodes[k] in lengths else None
+            stats.setdefault('scartati', []).append(
+                f"{gdf_utm.at[idx, 'name']} / {_format_desvia(civ.iloc[k]["desvia"])} {civ.iloc[k]['civico_alf']}: "
+                f"{civ.geometry.iloc[k].distance(pt):.0f} m in linea d'aria, "
+                + (f"{walk:.0f} m a piedi" if walk is not None else "non raggiungibile"))
+            continue
+        c = civ.iloc[best]
+        addr = format_indirizzo(_format_desvia(c['desvia']), str(c['civico_alf'] or '').strip()) + CIVICO_SUFFIX
+        gdf_utm.at[idx, 'indirizzo'] = addr
+        gdf_wgs84.at[idx, 'indirizzo'] = addr
+        stats['assegnati'] += 1
+    print(f"    {stats['assegnati']} of {stats['senza_indirizzo']} PoIs without address got the nearest civico "
+          f"(<= {CIVICO_MAX_M} m, reachable on foot); {stats['scartati_grafo']} rejected as not reachable.")
+    for line in stats.get('scartati', []):
+        print("      scartato:", line)
+    return gdf_utm, gdf_wgs84, stats
+
+
 # Aggregation-point sub_types used to decide whether a bench functions as
 # neighbourhood social seating or isolated trail/street furniture (see
 # reclassify_benches_by_proximity below, 2026-08-02 feedback: "farei
@@ -2612,15 +3146,19 @@ def calculate_icc(gdf_pois_utm):
     Compute the Indice di Classe Civica (ICC) per POI on a 0-100 scale.
     Original formula was 0.40*W_cat + 0.25*A_bus + 0.15*P_park + 0.20*Q_data;
     the P_park term was dropped entirely (2026-07-25: parking isn't mapped or
-    scored anymore), and the remaining weights renormalized to sum to 1:
-    ICC = (0.4706*W_cat + 0.2941*A_bus + 0.2353*Q_data) * 100
+    scored anymore), and so was Q_data (2026-11-24: how complete a PoI's card
+    is -- hours, contacts, photo -- measures mapping effort, not civic role;
+    adding the review photos alone moved ICC by ~6 points). Remaining weights
+    renormalized to sum to 1:
+    ICC = (0.6154*W_cat + 0.3846*A_bus) * 100
+    q_data is still computed and exported as a separate card-completeness
+    indicator, it just doesn't enter ICC.
     """
     print("--> Calculating Indice di Classe Civica (ICC)...")
 
-    remaining = 0.40 + 0.25 + 0.20  # = 0.85, the original weights minus P_park's 0.15
+    remaining = 0.40 + 0.25  # = 0.65, the original weights minus P_park's 0.15 and Q_data's 0.20
     w_cat_weight = 0.40 / remaining
     a_bus_weight = 0.25 / remaining
-    q_data_weight = 0.20 / remaining
 
     w_cat = gdf_pois_utm['category'].map(W_CAT).fillna(0.5)
     a_bus = (1 - gdf_pois_utm['d_bus_m'] / 800.0).clip(lower=0, upper=1)
@@ -2630,11 +3168,11 @@ def calculate_icc(gdf_pois_utm):
         return s not in ('', 'nan', '-', 'None')
 
     q_data = gdf_pois_utm.apply(
-        lambda row: sum(field_filled(row.get(f, '')) for f in KEY_QUALITY_FIELDS) / len(KEY_QUALITY_FIELDS),
+        lambda row: sum(field_filled(row.get(f, '')) for f in ICC_QUALITY_FIELDS) / len(ICC_QUALITY_FIELDS),
         axis=1
     )
 
-    icc = (w_cat_weight * w_cat + a_bus_weight * a_bus + q_data_weight * q_data) * 100
+    icc = (w_cat_weight * w_cat + a_bus_weight * a_bus) * 100
 
     gdf_pois_utm['w_cat'] = np.round(w_cat, 3)
     gdf_pois_utm['a_bus'] = np.round(a_bus, 3)
@@ -2901,6 +3439,32 @@ def write_report(path, stats, gdf_pois_wgs84):
     lines.append(f"- **Totale PoI finali nel dataset unificato: {total_final}**")
     lines.append("")
 
+    civ = stats.get('civici')
+    if civ:
+        lines.append("## 1c. Indirizzi dal civico più vicino (Comune di Trento)")
+        lines.append("")
+        lines.append(f"- PoI senza indirizzo prima di questo passaggio: **{civ['senza_indirizzo']}**")
+        lines.append(f"- Indirizzo assegnato dal civico più vicino (<= {CIVICO_MAX_M} m, raggiungibile a piedi): **{civ['assegnati']}**")
+        lines.append(f"- Civici vicini scartati perché non raggiungibili sul grafo pedonale: **{civ['scartati_grafo']}** "
+                     "(da verificare a mano: nelle piazze e nei cortili il grafo OSM non ha i passaggi interni)")
+        for line in civ.get('scartati', []):
+            lines.append(f"  - {line}")
+        lines.append("")
+
+    rev = stats.get('revisione')
+    if rev:
+        lines.append("## 1a. Revisione della Circoscrizione (foglio \"Dati PovoCivicHub\")")
+        lines.append("")
+        lines.append(f"- Panchine eliminate: **{rev['benches_removed']}**")
+        lines.append(f"- Altri PoI eliminati (escludere = Sì): **{rev['excluded']}**")
+        lines.append(f"- Descrizioni della Circoscrizione applicate: **{rev['descrizioni']}** (+ {rev['link_approfondimento']} link \"Approfondisci\")")
+        lines.append(f"- Foto attuali: **{rev['foto_attuali']}**, foto storiche: **{rev['foto_storiche']}**")
+        for label, items in (("Righe senza punto sulla mappa", rev['righe_senza_punto']),
+                             ("Foto non collegate", rev['foto_senza_punto'])):
+            if items:
+                lines.append(f"- {label}: " + ', '.join(items))
+        lines.append("")
+
     lines.append("## 1b. Mappatura servizi della Circoscrizione (PDF + Google My Maps)")
     lines.append("")
     lines.append(
@@ -3028,7 +3592,14 @@ def drop_private_sport_facilities(gdf_pois_utm, gdf_pois_wgs84):
 def main():
     print("=== POVO CIVIC HUB - GEOGRAPHIC DATA ANALYSIS PIPELINE (ICC EDITION) ===")
     gdf_wgs84, gdf_utm = load_boundary()
+    pick_overpass_url()
     G_utm, raw_pois_utm = fetch_osm_graph_and_pois(gdf_wgs84)
+    if raw_pois_utm is None or len(raw_pois_utm) < 100:
+        # Sanity guard: a truncated/empty Overpass answer must never overwrite
+        # the published dataset (2026-11-24: an empty mirror response produced
+        # a 140-PoI map). Normal runs fetch ~1000 raw OSM features.
+        raise SystemExit(f"Only {0 if raw_pois_utm is None else len(raw_pois_utm)} OSM features fetched: "
+                         "Overpass answer looks incomplete, aborting without writing outputs.")
     named_routes_buffer = fetch_named_hiking_routes(gdf_wgs84)
     gdf_osm_utm, gdf_osm_wgs84 = classify_and_transform_pois(raw_pois_utm, named_routes_buffer)
     gdf_osm_utm, gdf_osm_wgs84 = apply_osm_field_overrides(gdf_osm_utm, gdf_osm_wgs84)
@@ -3050,11 +3621,13 @@ def main():
     gdf_pois_utm, gdf_pois_wgs84, mappatura_stats = apply_mappatura(gdf_pois_utm, gdf_pois_wgs84)
 
     gdf_pois_utm, gdf_pois_wgs84 = add_geouri(gdf_pois_utm, gdf_pois_wgs84)
+    gdf_pois_utm, gdf_pois_wgs84 = add_creation_dates(gdf_pois_utm, gdf_pois_wgs84)
 
     gdf_pois_utm, gdf_pois_wgs84, n_private_sport_removed = drop_private_sport_facilities(gdf_pois_utm, gdf_pois_wgs84)
 
     gdf_pois_utm, gdf_pois_wgs84, enrich_stats = enrich_missing_data(gdf_pois_utm, gdf_pois_wgs84)
     gdf_pois_utm, gdf_pois_wgs84, image_check_stats = verify_image_urls(gdf_pois_utm, gdf_pois_wgs84)
+    gdf_pois_utm, gdf_pois_wgs84, revisione_stats = apply_revisione_circoscrizione(gdf_pois_utm, gdf_pois_wgs84)
 
     G_utm, gdf_pois_utm = integrate_dtm_and_tobler(G_utm, DTM_INPUT, gdf_pois_utm)
     gdf_pois_wgs84['altitudine_m'] = gdf_pois_utm['altitudine_m'].values
@@ -3063,6 +3636,8 @@ def main():
     gdf_pois_utm = calculate_accessibility_distances(gdf_pois_utm, G_utm, raw_pois_utm)
     for col in ['d_bus_m', 'd_parking_m', 't_bus_min', 't_parking_min', 'fatica_bus_pct', 'fatica_parking_pct']:
         gdf_pois_wgs84[col] = gdf_pois_utm[col].values
+
+    gdf_pois_utm, gdf_pois_wgs84, civici_stats = fill_indirizzo_from_civici(gdf_pois_utm, gdf_pois_wgs84, G_utm)
 
     gdf_pois_utm = reclassify_benches_by_proximity(gdf_pois_utm, G_utm)
     for col in ['category', 'social_function']:
@@ -3075,6 +3650,14 @@ def main():
     gdf_hex_utm = generate_h3_grid(gdf_wgs84, gdf_utm, res=10)
     gdf_hex_scored, gdf_pois_utm = calculate_scores_and_mixite(gdf_hex_utm, G_utm, gdf_pois_utm, gtfs_stops)
     gdf_pois_wgs84['categoria_secondaria'] = gdf_pois_utm['categoria_secondaria'].values
+    # Secondary vocations fixed by the Circoscrizione win over the computed ones.
+    fisse = revisione_stats.get('vocazioni_fisse', {})
+    if fisse:
+        mask = gdf_pois_wgs84['id'].astype(str).isin(fisse)
+        vals = gdf_pois_wgs84.loc[mask, 'id'].astype(str).map(fisse).values
+        gdf_pois_wgs84.loc[mask, 'categoria_secondaria'] = vals
+        gdf_pois_utm.loc[mask.values, 'categoria_secondaria'] = vals
+        print(f"--> Secondary vocation fixed by the Circoscrizione on {int(mask.sum())} PoIs.")
 
     export_results(gdf_hex_scored, gdf_utm, gdf_pois_wgs84)
 
@@ -3085,7 +3668,9 @@ def main():
         'image_check': image_check_stats,
         'manual_count': len(manual_utm),
         'mappatura': mappatura_stats,
-        'n_private_sport_removed': n_private_sport_removed
+        'n_private_sport_removed': n_private_sport_removed,
+        'revisione': revisione_stats,
+        'civici': civici_stats
     }, gdf_pois_wgs84)
 
     print("=== PIPELINE EXECUTED SUCCESSFULLY ===")
