@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { X, List, ChevronLeft, ChevronRight, ChevronUp, ChevronDown, ChevronsUpDown, MapPin, Globe, Lock, Download } from 'lucide-react';
-import { ALL_POI_CATEGORIES, CATEGORY_STYLES, ALL_GRUPPI, GRUPPI_SERVIZIO } from '../config/mapConfig';
+import { ALL_POI_CATEGORIES, CATEGORY_STYLES, ALL_GRUPPI, GRUPPI_SERVIZIO, formatDateIt } from '../config/mapConfig';
 
 const PAGE_SIZE = 20;
 
@@ -17,6 +17,9 @@ const COLUMNS = [
   { key: 'amenity_type', label: 'Tipo di Servizio', type: 'select', sortable: true },
   { key: 'accesso_pubblico', label: 'Accesso', type: 'select', sortable: true },
   { key: 'indirizzo', label: 'Indirizzo', type: 'text', sortable: true },
+  // Source creation date (2026-10-14 feedback): first OSM version, or the
+  // circoscrizione dataset's own date -- see build_data.py add_creation_dates.
+  { key: 'data_creazione', label: 'Data creazione', type: 'none', sortable: true },
   { key: 'icc_score', label: 'ICC', type: 'none', sortable: true, align: 'right' }
 ];
 
@@ -125,6 +128,11 @@ export default function CategoryTablesModal({ isOpen, onClose, poisData, onSelec
         const bv = typeof b.icc_score === 'number' ? b.icc_score : -Infinity;
         return (av - bv) * dir;
       }
+      if (key === 'data_creazione') {
+        // ISO dates sort as strings; PoIs without a date always go last.
+        if (!a.data_creazione || !b.data_creazione) return (a.data_creazione ? -1 : 0) + (b.data_creazione ? 1 : 0);
+        return a.data_creazione.localeCompare(b.data_creazione) * dir;
+      }
       if (key === 'gruppo_servizio') {
         const label = (r) => (GRUPPI_SERVIZIO[r.gruppo_servizio || 'altro'] || {}).label || '';
         return label(a).localeCompare(label(b), 'it') * dir;
@@ -168,6 +176,7 @@ export default function CategoryTablesModal({ isOpen, onClose, poisData, onSelec
       }
       if (col.key === 'accesso_pubblico') return row.accesso_pubblico !== false ? 'Pubblico' : 'Riservato';
       if (col.key === 'icc_score') return typeof row.icc_score === 'number' ? row.icc_score.toFixed(1) : '';
+      if (col.key === 'data_creazione') return row.data_creazione ? `${formatDateIt(row.data_creazione)} (${row.data_creazione_fonte})` : '';
       return row[col.key] || '';
     };
 
@@ -264,14 +273,14 @@ export default function CategoryTablesModal({ isOpen, onClose, poisData, onSelec
                     value={columnFilters.name}
                     onChange={(e) => setColumnFilter('name', e.target.value)}
                     placeholder="Filtra..."
-                    className="w-full text-sm font-normal bg-slate-800/70 border border-slate-700 rounded-md px-2 py-1 text-slate-200 placeholder:text-slate-400 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                    className="w-full text-sm font-normal bg-slate-800/70 border border-slate-400 rounded-md px-2 py-1 text-slate-200 placeholder:text-slate-400 focus:outline-none focus:ring-1 focus:ring-indigo-500"
                   />
                 </th>
                 <th className="px-4 pb-2">
                   <select
                     value={columnFilters.gruppo_servizio}
                     onChange={(e) => setColumnFilter('gruppo_servizio', e.target.value)}
-                    className="w-full text-sm font-normal bg-slate-800/70 border border-slate-700 rounded-md px-2 py-1 text-slate-200 cursor-pointer focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                    className="w-full text-sm font-normal bg-slate-800/70 border border-slate-400 rounded-md px-2 py-1 text-slate-200 cursor-pointer focus:outline-none focus:ring-1 focus:ring-indigo-500"
                   >
                     <option value="all">Tutte</option>
                     {gruppoOptions.map((g) => (
@@ -283,7 +292,7 @@ export default function CategoryTablesModal({ isOpen, onClose, poisData, onSelec
                   <select
                     value={columnFilters.category}
                     onChange={(e) => setColumnFilter('category', e.target.value)}
-                    className="w-full text-sm font-normal bg-slate-800/70 border border-slate-700 rounded-md px-2 py-1 text-slate-200 cursor-pointer focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                    className="w-full text-sm font-normal bg-slate-800/70 border border-slate-400 rounded-md px-2 py-1 text-slate-200 cursor-pointer focus:outline-none focus:ring-1 focus:ring-indigo-500"
                   >
                     <option value="all">Tutte</option>
                     {categoryOptions.map((cat) => (
@@ -295,7 +304,7 @@ export default function CategoryTablesModal({ isOpen, onClose, poisData, onSelec
                   <select
                     value={columnFilters.categoria_secondaria}
                     onChange={(e) => setColumnFilter('categoria_secondaria', e.target.value)}
-                    className="w-full text-sm font-normal bg-slate-800/70 border border-slate-700 rounded-md px-2 py-1 text-slate-200 cursor-pointer focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                    className="w-full text-sm font-normal bg-slate-800/70 border border-slate-400 rounded-md px-2 py-1 text-slate-200 cursor-pointer focus:outline-none focus:ring-1 focus:ring-indigo-500"
                   >
                     <option value="all">Tutte</option>
                     {categoriaSecondariaOptions.map((cat) => (
@@ -307,7 +316,7 @@ export default function CategoryTablesModal({ isOpen, onClose, poisData, onSelec
                   <select
                     value={columnFilters.amenity_type}
                     onChange={(e) => setColumnFilter('amenity_type', e.target.value)}
-                    className="w-full text-sm font-normal bg-slate-800/70 border border-slate-700 rounded-md px-2 py-1 text-slate-200 cursor-pointer focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                    className="w-full text-sm font-normal bg-slate-800/70 border border-slate-400 rounded-md px-2 py-1 text-slate-200 cursor-pointer focus:outline-none focus:ring-1 focus:ring-indigo-500"
                   >
                     <option value="all">Tutti</option>
                     {amenityTypeOptions.map((type) => (
@@ -319,7 +328,7 @@ export default function CategoryTablesModal({ isOpen, onClose, poisData, onSelec
                   <select
                     value={columnFilters.accesso_pubblico}
                     onChange={(e) => setColumnFilter('accesso_pubblico', e.target.value)}
-                    className="w-full text-sm font-normal bg-slate-800/70 border border-slate-700 rounded-md px-2 py-1 text-slate-200 cursor-pointer focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                    className="w-full text-sm font-normal bg-slate-800/70 border border-slate-400 rounded-md px-2 py-1 text-slate-200 cursor-pointer focus:outline-none focus:ring-1 focus:ring-indigo-500"
                   >
                     <option value="all">Tutti</option>
                     {accessOptions.showPublic && <option value="true">Pubblico</option>}
@@ -332,9 +341,10 @@ export default function CategoryTablesModal({ isOpen, onClose, poisData, onSelec
                     value={columnFilters.indirizzo}
                     onChange={(e) => setColumnFilter('indirizzo', e.target.value)}
                     placeholder="Filtra..."
-                    className="w-full text-sm font-normal bg-slate-800/70 border border-slate-700 rounded-md px-2 py-1 text-slate-200 placeholder:text-slate-400 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                    className="w-full text-sm font-normal bg-slate-800/70 border border-slate-400 rounded-md px-2 py-1 text-slate-200 placeholder:text-slate-400 focus:outline-none focus:ring-1 focus:ring-indigo-500"
                   />
                 </th>
+                <th className="px-4 pb-2"></th>
                 <th className="px-4 pb-2"></th>
                 <th className="px-2 pb-2"></th>
               </tr>
@@ -384,7 +394,7 @@ export default function CategoryTablesModal({ isOpen, onClose, poisData, onSelec
                           })}
                         </div>
                       ) : (
-                        <span className="text-slate-600">—</span>
+                        <span className="text-slate-400">—</span>
                       )}
                     </td>
                     <td className="px-4 py-2 text-slate-400">{row.amenity_type || '—'}</td>
@@ -400,6 +410,9 @@ export default function CategoryTablesModal({ isOpen, onClose, poisData, onSelec
                       )}
                     </td>
                     <td className="px-4 py-2 text-slate-400">{row.indirizzo || '—'}</td>
+                    <td className="px-4 py-2 text-slate-300 whitespace-nowrap" title={row.data_creazione_fonte || 'Data non disponibile'}>
+                      {row.data_creazione ? formatDateIt(row.data_creazione) : '—'}
+                    </td>
                     <td className="px-4 py-2 text-right text-slate-300 font-mono">
                       {typeof row.icc_score === 'number' ? row.icc_score.toFixed(0) : '—'}
                     </td>

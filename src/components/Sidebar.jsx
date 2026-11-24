@@ -224,7 +224,7 @@ export default function Sidebar({
               aria-pressed={textScale === i}
               aria-label={scale.aria}
               title={scale.aria}
-              className={`min-w-[2.25rem] px-2 py-1 rounded-md border font-semibold transition ${textScale === i ? 'bg-indigo-500/30 border-indigo-400 text-white' : 'border-slate-700 text-slate-300 hover:bg-slate-800'}`}
+              className={`min-w-[2.25rem] px-2 py-1 rounded-md border font-semibold transition ${textScale === i ? 'bg-indigo-500/30 border-indigo-400 text-white' : 'border-slate-500 text-slate-300 hover:bg-slate-800'}`}
               style={{ fontSize: scale.preview }}
             >
               A
@@ -245,7 +245,7 @@ export default function Sidebar({
             onChange={(e) => setQuery(e.target.value)}
             placeholder="Cerca un luogo o un servizio…"
             aria-label="Cerca un luogo o un servizio"
-            className="w-full text-base bg-slate-900/70 border border-slate-600 rounded-xl pl-9 pr-3 py-2.5 text-slate-100 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-400"
+            className="w-full text-base bg-slate-900/70 border border-slate-400 rounded-xl pl-9 pr-3 py-2.5 text-slate-100 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-400"
           />
         </div>
 
@@ -374,7 +374,7 @@ export default function Sidebar({
           <select
             value={mapStyle}
             onChange={(e) => onChangeMapStyle(e.target.value)}
-            className="w-full text-sm bg-slate-900/60 border border-slate-700 rounded-lg px-3 py-2 text-slate-200 cursor-pointer focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            className="w-full text-sm bg-slate-900/60 border border-slate-400 rounded-lg px-3 py-2 text-slate-200 cursor-pointer focus:outline-none focus:ring-2 focus:ring-indigo-500"
           >
             {Object.entries(MAP_STYLES).map(([key, cfg]) => (
               <option key={key} value={key}>{cfg.label}</option>
@@ -711,9 +711,20 @@ export default function Sidebar({
 
       {/* Footer */}
       <footer className="p-4 border-t border-slate-800/80 bg-slate-950/80 text-sm text-slate-400 text-center">
-        <div className="flex items-center justify-center gap-2 mb-2 text-slate-300">
-          <img src="./loghi/stemma_povo.jpg" alt="" className="w-7 h-7 rounded bg-white object-contain" />
-          In collaborazione con la Circoscrizione di Povo
+        {/* Partner logos on a white plate (the Trento city brand's colour
+            version is meant for light backgrounds). The city brand file lives
+            in public/loghi/locale/, git-ignored: it's for local prototypes
+            only (2026-10-14) until the Circoscrizione/Comune supply it with
+            permission -- when it's absent the image simply hides itself. */}
+        <div className="flex items-center justify-center gap-3 mb-3 px-3 py-2 rounded-xl bg-white text-slate-800">
+          <img src="./loghi/stemma_povo.jpg" alt="Stemma della Circoscrizione di Povo" className="h-10 w-auto object-contain" />
+          <span className="text-sm font-semibold leading-tight text-left">Circoscrizione<br />di Povo</span>
+          <img
+            src="./loghi/locale/trento_city_brand.svg"
+            alt="Trento - Alza lo sguardo"
+            className="h-10 w-auto object-contain"
+            onError={(e) => { e.currentTarget.style.display = 'none'; }}
+          />
         </div>
         Povo Civic Hub 2026 &bull; napo@fbk &bull;{' '}
         <a

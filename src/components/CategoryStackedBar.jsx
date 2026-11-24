@@ -71,7 +71,7 @@ export default function CategoryStackedBar({ title, segments, valueLabel = 'Valo
       </div>
 
       {note && <div className="text-xs text-slate-400 leading-relaxed pt-1 border-t border-slate-800">{note}</div>}
-      <div className="text-xs text-slate-600">{valueLabel}</div>
+      <div className="text-xs text-slate-400">{valueLabel}</div>
     </div>
   );
 }
