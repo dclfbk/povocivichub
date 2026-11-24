@@ -390,6 +390,24 @@ export default function Map({
     // clicking it calls resetNorth() (not resetNorthPitch()), so it can't
     // fight with the separate "Vista 3D" pitch toggle.
     map.addControl(new maplibregl.NavigationControl({ visualizePitch: false }), 'top-right');
+    // FBK logo, bottom-left. The official logo has a white background, so it
+    // sits on a white rounded card to look intentional on every basemap.
+    map.addControl({
+      onAdd: () => {
+        const link = document.createElement('a');
+        link.className = 'maplibregl-ctrl fbk-logo-ctrl';
+        link.href = 'https://www.fbk.eu';
+        link.target = '_blank';
+        link.rel = 'noopener noreferrer';
+        link.title = 'Fondazione Bruno Kessler';
+        const img = document.createElement('img');
+        img.src = `${import.meta.env.BASE_URL}loghi/fbk_logo.png`;
+        img.alt = 'Fondazione Bruno Kessler';
+        link.appendChild(img);
+        return link;
+      },
+      onRemove: () => {}
+    }, 'bottom-left');
     map.addControl({
       onAdd: () => {
         const container = document.createElement('div');

@@ -77,7 +77,25 @@ export const MAP_STYLES = {
     tiles: [
       'https://titiler.hotosm.org/cog/tiles/WebMercatorQuad/{z}/{x}/{y}@1x' +
       '?url=https://oin-hotosm-temp.s3.us-east-1.amazonaws.com/60770b0fb85cd80007a01414/0/60770b0fb85cd80007a01415.tif'
-    ]
+    ],
+    attribution: 'OpenAerialMap &bull; Provincia Autonoma di Trento (Ortofotocarta 2019)'
+  },
+  // Austrian cadastral map of the C.C. Povo (mid-1800s), from the Provincia's
+  // HISTORICALkat archive (Archivio storico dell'Ufficio catasto). It's a
+  // GeoWebCache WMS: it only answers tile-aligned EPSG:900913 bboxes, which is
+  // exactly what MapLibre's {bbox-epsg-3857} with tileSize 256 produces (a
+  // non-aligned bbox returns a 400 "exceeds the threshold of 10%" error).
+  // The layer covers only the Povo cadastral commune, so outside it the
+  // white background shows instead of a blank map.
+  'catasto-storico': {
+    label: 'Catasto storico (1800)',
+    tiles: [
+      'https://historicalkat.provincia.tn.it/geoserver/gwc/service/wms' +
+      '?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap&LAYERS=catasto:im214_povo_unione&STYLES=' +
+      '&SRS=EPSG:900913&BBOX={bbox-epsg-3857}&WIDTH=256&HEIGHT=256&FORMAT=image/png&TRANSPARENT=true'
+    ],
+    background: '#f5f0e1',
+    attribution: 'Provincia Autonoma di Trento &bull; HISTORICALkat, Archivio storico del Catasto'
   }
 };
 export const DEFAULT_MAP_STYLE = 'hiking-it';
@@ -105,10 +123,15 @@ export function buildMapStyleDefinition(styleKey) {
         type: 'raster',
         tiles: cfg.tiles,
         tileSize: 256,
-        attribution: 'OpenAerialMap &bull; Provincia Autonoma di Trento (Ortofotocarta 2019)'
+        attribution: cfg.attribution
       }
     },
-    layers: [{ id: 'aerial-raster-layer', type: 'raster', source: 'aerial-raster-src' }]
+    layers: [
+      ...(cfg.background
+        ? [{ id: 'raster-background', type: 'background', paint: { 'background-color': cfg.background } }]
+        : []),
+      { id: 'aerial-raster-layer', type: 'raster', source: 'aerial-raster-src' }
+    ]
   };
 }
 
@@ -574,6 +597,8 @@ export const ICON_VISUALS = {
   canteen: { emoji: '🍽️', color: CATEGORY_STYLES.pendolari.color },
   // Outdoor/occasionali-colored additions.
   nature_reserve: { emoji: '🌲', color: CATEGORY_STYLES.occasionali.color },
+  // Mountain summit (e.g. Monte Celva, 2026-11-24).
+  peak: { emoji: '⛰️', color: CATEGORY_STYLES.occasionali.color },
   // amenity=shelter + shelter_type=basic_hut/rock_shelter: a small enclosed
   // hut/refuge you could actually take cover in overnight -- a plain
   // building glyph reads more accurately than a mountain landscape (2026-08-02
@@ -817,6 +842,12 @@ function buildMapChooserHtml(geouri) {
   `;
 }
 
+// ISO 'yyyy-mm-dd' -> 'dd/mm/yyyy' (data_creazione, see build_data.py add_creation_dates).
+export function formatDateIt(iso) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso || '');
+  return m ? `${m[3]}/${m[2]}/${m[1]}` : '';
+}
+
 // My Maps descriptions are free text typed by the circoscrizione -- escaped
 // before going into the popup's innerHTML.
 function escapeHtml(text) {
@@ -836,6 +867,79 @@ function detailRow(icon, label, value) {
   `;
 }
 
+// "Allora / oggi" comparison slider (juxtapose effect, asked by the
+// Circoscrizione for PoIs with both a historical and a current photo). The
+// historical photo sits on top, clipped from the right; dragging the range
+// input reveals more or less of it. Popup HTML is injected via setHTML, so
+// the handlers are inline on purpose. Both photos use "cover" in a fixed box
+// so their framing lines up; the copyright is burned into each image by the
+// pipeline, the captions below repeat it in readable text.
+//
+// A place can have several pairs, each shot from its own viewpoint (sheet
+// rows "N", "N bis", ...): one slider + a button per pair (2026-11-24: a
+// 4-photo slider would mix viewpoints and stop being a real comparison).
+function buildJuxtaposeHtml(pairs) {
+  const first = pairs[0];
+  const onInput = "var w=this.parentNode;" +
+    "w.querySelector('.jx-old').style.clipPath='inset(0 '+(100-this.value)+'% 0 0)';" +
+    "w.querySelector('.jx-line').style.left=this.value+'%';";
+  const onPick = "var r=this.closest('.jx-root'),d=this.dataset;" +
+    "r.querySelector('.jx-new').src=d.new;r.querySelector('.jx-old').src=d.old;" +
+    "r.querySelector('.jx-nc').textContent='Oggi: '+d.nc;r.querySelector('.jx-oc').textContent='Allora: '+d.oc;" +
+    "var s=r.querySelector('input[type=range]');s.value=50;s.oninput();" +
+    "r.querySelectorAll('.jx-btn').forEach(function(b){b.setAttribute('aria-pressed',b===this);" +
+    "b.style.background=b===this?'#fbbf24':'transparent';b.style.color=b===this?'#0f172a':'#fbbf24';},this);";
+  const buttons = pairs.length > 1 ? `
+    <div style="display: flex; flex-wrap: wrap; gap: 6px; padding: 8px 12px 6px;">
+      ${pairs.map((p, k) => `
+        <button type="button" class="jx-btn" aria-pressed="${k === 0}"
+                data-new="${escapeHtml(p.new)}" data-old="${escapeHtml(p.old)}"
+                data-nc="${escapeHtml(p.new_credit || '')}" data-oc="${escapeHtml(p.old_credit || '')}"
+                onclick="${onPick}"
+                style="padding: 3px 9px; border-radius: 999px; border: 1px solid #fbbf24; font-size: 0.75rem; font-weight: 700; cursor: pointer;
+                       background: ${k === 0 ? '#fbbf24' : 'transparent'}; color: ${k === 0 ? '#0f172a' : '#fbbf24'};">
+          ${escapeHtml(p.label || `Confronto ${k + 1}`)}
+        </button>`).join('')}
+    </div>` : '';
+  return `
+    <div class="jx-root">
+      ${buttons}
+      <div style="position: relative; width: 100%; height: 220px; overflow: hidden; background: #0f172a; user-select: none;">
+        <img class="jx-new" src="${first.new}" alt="Oggi" draggable="false"
+             style="position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover;" />
+        <img class="jx-old" src="${first.old}" alt="Allora" draggable="false"
+             style="position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; clip-path: inset(0 50% 0 0);" />
+        <div class="jx-line" style="position: absolute; top: 0; bottom: 0; left: 50%; width: 2px; margin-left: -1px; background: #fbbf24; pointer-events: none;"></div>
+        <span style="position: absolute; bottom: 6px; left: 6px; padding: 2px 6px; border-radius: 4px; background: rgba(0,0,0,0.6); color: #fbbf24; font-size: 0.6875rem; font-weight: 700; pointer-events: none;">Allora</span>
+        <span style="position: absolute; bottom: 6px; right: 6px; padding: 2px 6px; border-radius: 4px; background: rgba(0,0,0,0.6); color: #ffffff; font-size: 0.6875rem; font-weight: 700; pointer-events: none;">Oggi</span>
+        <input type="range" min="0" max="100" value="50" aria-label="Confronta foto storica e attuale"
+               oninput="${onInput}"
+               style="position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; opacity: 0; cursor: ew-resize;" />
+      </div>
+      <div style="display: flex; justify-content: space-between; gap: 8px; font-size: 0.6875rem; color: #94a3b8; padding: 3px 12px 0;">
+        <span class="jx-oc">Allora: ${escapeHtml(first.old_credit || '')}</span>
+        <span class="jx-nc" style="text-align: right;">Oggi: ${escapeHtml(first.new_credit || '')}</span>
+      </div>
+    </div>
+  `;
+}
+
+// foto_coppie is an array in povo_pois.json, but MapLibre hands nested
+// property values back as JSON strings on rendered features -- accept both.
+// Data without it falls back to the single image pair.
+function getPhotoPairs(props, currentSrc) {
+  try {
+    const raw = props.foto_coppie;
+    const pairs = Array.isArray(raw) ? raw : JSON.parse(raw || '[]');
+    if (Array.isArray(pairs) && pairs.length) return pairs;
+  } catch {
+    // malformed: fall through to the single pair
+  }
+  return currentSrc && props.image_storica_url
+    ? [{ new: currentSrc, old: props.image_storica_url, new_credit: props.image_credit, old_credit: props.image_storica_credit }]
+    : [];
+}
+
 // Builds the PoI detail popup's inner HTML from a feature's properties.
 // Shared between the map's direct-click handler and the PoI table's
 // "row click -> fly to it" flow, so both produce the identical rich popup.
@@ -845,10 +949,12 @@ function detailRow(icon, label, value) {
 // function showed, even though address/hours/contacts/website/disabled
 // access were already being collected and sitting unused in the data.
 export function buildPoiPopupHtml(props) {
-  const badge = POPUP_CATEGORY_BADGES[props.category] || { label: props.category, color: '#94a3b8' };
+  const badge = POPUP_CATEGORY_BADGES[props.category] || { label: props.category, color: '#475569' };
   const serviceType = props.amenity_type || formatSubType(props.sub_type);
   const hasSocialFunction = props.social_function && props.social_function.length > 0;
-  const imageSrc = props.image_url && props.image_url.length > 0
+  const hasPhoto = Boolean(props.image_url && props.image_url.length > 0);
+  const photoPairs = getPhotoPairs(props, hasPhoto ? props.image_url : '');
+  const imageSrc = hasPhoto
     ? props.image_url
     : buildPlaceholderImageDataUri(props.icon_name);
   const secondaryCategories = (props.categoria_secondaria || '').split(',').filter(Boolean);
@@ -872,6 +978,13 @@ export function buildPoiPopupHtml(props) {
     reachabilityRow('🅿️', 'Parcheggio più vicino', props.d_parking_m, props.t_parking_min, props.fatica_parking_pct),
     detailRow('♿', 'Accessibilità disabili', props.accessibilita_disabili),
     detailRow('☎️', 'Contatti', props.contatti),
+    props.data_creazione
+      ? detailRow('📅', 'Creato', `${formatDateIt(props.data_creazione)} (${props.data_creazione_fonte})`) : '',
+    props.approfondimento_url ? `
+      <div style="font-size: 0.8125rem; margin-top: 3px;">
+        📖 <a href="${props.approfondimento_url}" target="_blank" rel="noopener noreferrer" style="color: #a5b4fc; text-decoration: underline;">Approfondisci</a>
+      </div>
+    ` : '',
     props.sito_web ? `
       <div style="font-size: 0.8125rem; margin-top: 3px;">
         🌐 <a href="${props.sito_web}" target="_blank" rel="noopener noreferrer" style="color: #a5b4fc; text-decoration: underline;">Sito web</a>
@@ -881,8 +994,21 @@ export function buildPoiPopupHtml(props) {
 
   return `
     <div style="font-family: Inter, sans-serif; width: min(20rem, 80vw);">
-      <img src="${imageSrc}" alt=""
-           style="width: 100%; height: 120px; object-fit: cover; display: block;" />
+      ${photoPairs.length
+        ? buildJuxtaposeHtml(photoPairs)
+        : hasPhoto || props.image_storica_url
+          // Real photos keep their own proportions (2026-11 Circoscrizione
+          // feedback: the fixed 120px "cover" crop cut off portrait and square
+          // shots, e.g. the bookcrossing at Salè). Capped height so a tall
+          // portrait photo doesn't push the details out of the popup.
+          ? `<img src="${hasPhoto ? imageSrc : props.image_storica_url}" alt=""
+                 style="width: 100%; height: auto; max-height: 260px; object-fit: contain; display: block; background: #0f172a;" />`
+          : `<img src="${imageSrc}" alt=""
+                 style="width: 100%; height: 120px; object-fit: cover; display: block;" />`}
+      ${!photoPairs.length && (hasPhoto ? props.image_credit : props.image_storica_credit) ? `
+        <div style="font-size: 0.6875rem; color: #94a3b8; padding: 3px 12px 0; text-align: right;">
+          Foto: ${escapeHtml(hasPhoto ? props.image_credit : props.image_storica_credit)}
+        </div>` : ''}
       <div style="padding: 12px;">
         <div style="font-weight: 700; font-size: 1rem; color: #ffffff; line-height: 1.3;">
           ${props.name && props.name.length > 0 ? props.name : 'Punto di interesse'}
@@ -903,7 +1029,7 @@ export function buildPoiPopupHtml(props) {
         ${secondaryCategories.length > 0 ? `
           <div style="margin-top: 6px;">
             ${secondaryCategories.map((cat) => {
-              const secBadge = POPUP_CATEGORY_BADGES[cat] || { label: cat, color: '#94a3b8' };
+              const secBadge = POPUP_CATEGORY_BADGES[cat] || { label: cat, color: '#475569' };
               return `<span style="display: inline-block; margin-top: 2px; margin-right: 4px; padding: 2px 8px; border-radius: 999px; font-size: 0.75rem; font-weight: 700; color: ${secBadge.color}; background: #ffffff; border: 1.5px solid ${secBadge.color};">
                 + ${secBadge.label}
               </span>`;
@@ -950,8 +1076,11 @@ export function formatSubType(subType) {
 // that single surface, distinct from CATEGORY_STYLES (used for map icon colors,
 // the layer-switcher chips, and the legend) which stays unchanged elsewhere.
 export const POPUP_CATEGORY_BADGES = {
-  cross_civic: { label: 'Luoghi Pubblici', color: '#10b981' }, // verde
-  residenti: { label: 'Servizi per Residenti', color: '#3b82f6' }, // blu
-  pendolari: { label: 'Flussi Pendolari & Uni', color: '#f97316' }, // arancione
-  occasionali: { label: 'Outdoor, Memoria & Sport', color: '#8b5cf6' } // viola
+  // 700 shades (2026-10-14 WCAG check): white text on the former 500 shades
+  // was 2.5-4.2:1, below AA's 4.5:1; these are 5.2-7.1:1, and pass as
+  // coloured text on the white secondary badges too.
+  cross_civic: { label: 'Luoghi Pubblici', color: '#047857' }, // verde
+  residenti: { label: 'Servizi per Residenti', color: '#1d4ed8' }, // blu
+  pendolari: { label: 'Flussi Pendolari & Uni', color: '#c2410c' }, // arancione
+  occasionali: { label: 'Outdoor, Memoria & Sport', color: '#6d28d9' } // viola
 };

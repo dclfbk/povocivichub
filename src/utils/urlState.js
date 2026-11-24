@@ -16,7 +16,7 @@ const GRID_METRIC_FROM_CODE = Object.fromEntries(
 
 const MAP_STYLE_CODES = {
   liberty: 'l', positron: 'p', bright: 'b', dark: 'k', fiord: 'f', aerial: 'a',
-  'street-it': 's', 'hiking-it': 'h', 'cycling-it': 'y'
+  'street-it': 's', 'hiking-it': 'h', 'cycling-it': 'y', 'catasto-storico': 'c'
 };
 const MAP_STYLE_FROM_CODE = Object.fromEntries(
   Object.entries(MAP_STYLE_CODES).map(([key, code]) => [code, key])
@@ -33,7 +33,10 @@ export const DEFAULT_VIEW_STATE = {
 const DEFAULTS = {
   ...DEFAULT_VIEW_STATE,
   showTerrain: false,
-  poiViewMode: 'none',
+  // 'icons' so the PoIs are on the map from the first load (2026-11-24: with
+  // 'none' the categories looked active but nothing showed until the user
+  // clicked the view toggle). Links with s=n still open with PoIs hidden.
+  poiViewMode: 'icons',
   showGrid: false,
   gridMetric: 'dominant',
   activePoiCategories: ALL_POI_CATEGORIES,
