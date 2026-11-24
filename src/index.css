@@ -113,6 +113,14 @@
   background-color: #6366f1;
   color: #fff;
 }
+/* "Categoria / Vocazione" icon-color toggle, under the 3D button: wider than
+   the square default to fit the word. */
+.maplibregl-ctrl-group button.poi-color-mode-ctrl {
+  width: auto;
+  padding: 0 8px;
+  font: 700 11px/1 Inter, sans-serif;
+  color: #333;
+}
 
 /* Visible keyboard focus everywhere (2026-10-09 feedback: accessibilità). */
 :focus-visible {

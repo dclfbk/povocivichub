@@ -7,6 +7,7 @@ import {
   buildHexRangeFilter,
   CLUSTER_CATEGORY_PROPERTIES,
   createPoiIconImage,
+  buildPoiIconImageExpression,
   computePoiStatsInPolygon,
   aggregateHexScoresInPolygon,
   EMPTY_MAP_STYLE,
@@ -31,6 +32,17 @@ function unclusteredCategoryFilter(categories) {
   return ['all', UNCLUSTERED_FILTER_BASE, ['in', ['get', 'category'], ['literal', cats]]];
 }
 
+// Shows the mode a click switches TO, like a link ("Vocazione" while the
+// icons are colored by categoria).
+function updateColorModeButton(button, mode) {
+  const next = mode === 'vocazione' ? 'categoria' : 'vocazione';
+  button.textContent = next === 'vocazione' ? 'Vocazione' : 'Categoria';
+  button.title = next === 'vocazione'
+    ? 'Colora le icone per vocazione (residenti, pendolari, occasionali, luoghi pubblici)'
+    : 'Colora le icone per categoria';
+  button.setAttribute('aria-label', button.title);
+}
+
 function updateTerrainButton(button, active) {
   button.classList.toggle('is-active', active);
   button.setAttribute('aria-pressed', String(active));
@@ -46,6 +58,8 @@ export default function Map({
   poiViewMode,
   showTerrain,
   onToggleTerrain,
+  poiColorMode,
+  onChangePoiColorMode,
   gridMetric,
   activePoiCategories,
   activeGruppi,
@@ -107,6 +121,12 @@ export default function Map({
   // feedback: under the zoom widget, not in the sidebar). Refs because the
   // control is created once at mount.
   const terrainButtonRef = useRef(null);
+  // "Colori per categoria / vocazione" toggle, same control-stack pattern.
+  const colorModeButtonRef = useRef(null);
+  const onChangePoiColorModeRef = useRef(onChangePoiColorMode);
+  useEffect(() => {
+    onChangePoiColorModeRef.current = onChangePoiColorMode;
+  }, [onChangePoiColorMode]);
   const showTerrainRef = useRef(showTerrain);
   const onToggleTerrainRef = useRef(onToggleTerrain);
   useEffect(() => {
@@ -125,10 +145,10 @@ export default function Map({
   // Latest prop values, kept in refs so the layer-(re)creation logic below
   // (shared between the initial mount and every basemap-style switch) always
   // reads current state instead of whatever was captured at mount time.
-  const stateRef = useRef({ showGrid, poiViewMode, gridMetric, activePoiCategories, activeGruppi, showTerrain, heatmapRadius, hexValueRange });
+  const stateRef = useRef({ poiColorMode, showGrid, poiViewMode, gridMetric, activePoiCategories, activeGruppi, showTerrain, heatmapRadius, hexValueRange });
   useEffect(() => {
-    stateRef.current = { showGrid, poiViewMode, gridMetric, activePoiCategories, activeGruppi, showTerrain, heatmapRadius, hexValueRange };
-  }, [showGrid, poiViewMode, gridMetric, activePoiCategories, activeGruppi, showTerrain, heatmapRadius, hexValueRange]);
+    stateRef.current = { poiColorMode, showGrid, poiViewMode, gridMetric, activePoiCategories, activeGruppi, showTerrain, heatmapRadius, hexValueRange };
+  }, [poiColorMode, showGrid, poiViewMode, gridMetric, activePoiCategories, activeGruppi, showTerrain, heatmapRadius, hexValueRange]);
 
   useEffect(() => {
     poisDataRef.current = poisData;
@@ -274,7 +294,7 @@ export default function Map({
       filter: unclusteredCategoryFilter(stateRef.current.activePoiCategories),
       layout: {
         visibility: 'none',
-        'icon-image': ['get', 'icon_name'],
+        'icon-image': buildPoiIconImageExpression(stateRef.current.poiColorMode),
         'icon-size': 1.2,
         'icon-allow-overlap': true,
         'text-field': ['get', 'name'],
@@ -333,6 +353,7 @@ export default function Map({
     map.setFilter('povo-grid-fill', hexFilter);
     map.setFilter('povo-grid-outline', hexFilter);
 
+    map.setLayoutProperty('poi-unclustered-icon', 'icon-image', buildPoiIconImageExpression(stateRef.current.poiColorMode));
     const iconsVisible = pvm === 'icons' ? 'visible' : 'none';
     const heatmapVisible = pvm === 'heatmap' ? 'visible' : 'none';
     map.setLayoutProperty('poi-clusters', 'visibility', iconsVisible);
@@ -426,6 +447,26 @@ export default function Map({
       },
       onRemove: () => {
         terrainButtonRef.current = null;
+      }
+    }, 'top-right');
+    map.addControl({
+      onAdd: () => {
+        const container = document.createElement('div');
+        container.className = 'maplibregl-ctrl maplibregl-ctrl-group';
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'poi-color-mode-ctrl';
+        button.addEventListener('click', () => {
+          const next = stateRef.current.poiColorMode === 'vocazione' ? 'categoria' : 'vocazione';
+          if (onChangePoiColorModeRef.current) onChangePoiColorModeRef.current(next);
+        });
+        container.appendChild(button);
+        colorModeButtonRef.current = button;
+        updateColorModeButton(button, stateRef.current.poiColorMode);
+        return container;
+      },
+      onRemove: () => {
+        colorModeButtonRef.current = null;
       }
     }, 'top-right');
     map.addControl(new maplibregl.ScaleControl({ unit: 'metric' }), 'bottom-right');
@@ -651,6 +692,15 @@ export default function Map({
       cancelled = true;
     };
   }, [mapStyle]);
+
+  // Icon coloring: categoria (default) or vocazione. Images for the new ids
+  // are drawn on demand by the 'styleimagemissing' handler.
+  useEffect(() => {
+    if (colorModeButtonRef.current) updateColorModeButton(colorModeButtonRef.current, poiColorMode);
+    const map = mapRef.current;
+    if (!map || !loaded || !map.getLayer('poi-unclustered-icon')) return;
+    map.setLayoutProperty('poi-unclustered-icon', 'icon-image', buildPoiIconImageExpression(poiColorMode));
+  }, [poiColorMode, loaded]);
 
   // React to layer-visibility / styling prop changes after the map has loaded.
   useEffect(() => {

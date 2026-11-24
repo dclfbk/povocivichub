@@ -68,6 +68,7 @@ export default function App() {
   const [showGrid, setShowGrid] = useState(initialUrlState.showGrid);
   const [poiViewMode, setPoiViewMode] = useState(initialUrlState.poiViewMode); // 'none' | 'icons' | 'heatmap'
   const [showTerrain, setShowTerrain] = useState(initialUrlState.showTerrain);
+  const [poiColorMode, setPoiColorMode] = useState(initialUrlState.poiColorMode); // 'categoria' | 'vocazione'
   const [gridMetric, setGridMetric] = useState(initialUrlState.gridMetric);
   const [activePoiCategories, setActivePoiCategories] = useState(initialUrlState.activePoiCategories);
   const [activeGruppi, setActiveGruppi] = useState(initialUrlState.activeGruppi);
@@ -142,6 +143,7 @@ export default function App() {
     const qs = buildUrlSearch({
       ...viewState,
       showTerrain,
+      poiColorMode,
       poiViewMode,
       showGrid,
       gridMetric,
@@ -151,7 +153,7 @@ export default function App() {
       selectedHexId: (selectedHex && selectedHex.h3_id) || null
     });
     window.history.replaceState(null, '', `${window.location.pathname}?${qs}`);
-  }, [viewState, showTerrain, poiViewMode, showGrid, gridMetric, activePoiCategories, activeGruppi, mapStyle, selectedHex]);
+  }, [viewState, showTerrain, poiColorMode, poiViewMode, showGrid, gridMetric, activePoiCategories, activeGruppi, mapStyle, selectedHex]);
 
   const gruppiCounts = useMemo(() => {
     const counts = {};
@@ -316,6 +318,8 @@ export default function App() {
           poiViewMode={poiViewMode}
           showTerrain={showTerrain}
           onToggleTerrain={setShowTerrain}
+          poiColorMode={poiColorMode}
+          onChangePoiColorMode={setPoiColorMode}
           gridMetric={gridMetric}
           activePoiCategories={activePoiCategories}
           activeGruppi={activeGruppi}

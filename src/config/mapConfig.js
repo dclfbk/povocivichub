@@ -622,8 +622,15 @@ export const ICON_VISUALS = {
 // Renders a colored circular badge with an emoji glyph onto an offscreen canvas,
 // used to register MapLibre symbol images on demand (see 'styleimagemissing' in
 // Map.jsx). Keeping icons self-drawn avoids bundling/licensing an external sprite.
-export function createPoiIconImage(iconName) {
-  const { emoji, color } = ICON_VISUALS[iconName] || ICON_VISUALS.marker;
+//
+// Image ids are either '<icon_name>' (badge in the vocazione color) or
+// '<icon_name>|<gruppo>' (badge in that categoria's color, see
+// buildPoiIconImageExpression).
+export function createPoiIconImage(imageId) {
+  const [iconName, gruppo] = String(imageId).split('|');
+  const visual = ICON_VISUALS[iconName] || ICON_VISUALS.marker;
+  const { emoji } = visual;
+  const color = (gruppo && GRUPPI_SERVIZIO[gruppo] && GRUPPI_SERVIZIO[gruppo].color) || visual.color;
   const size = 48;
   const canvas = document.createElement('canvas');
   canvas.width = size;
@@ -644,6 +651,23 @@ export function createPoiIconImage(iconName) {
   ctx.fillText(emoji, size / 2, size / 2 + 2);
 
   return ctx.getImageData(0, 0, size, size);
+}
+
+// Icon colors (2026-11-24, promised to the Circoscrizione on 2026-10-20):
+// by default the badge takes the color of the PoI's categoria (the same
+// colors as the sidebar's "Categorie" list, which doubles as the legend);
+// 'vocazione' keeps the original residenti/pendolari/... coloring as a
+// second view.
+export const POI_COLOR_MODES = {
+  categoria: { label: 'Colori per categoria' },
+  vocazione: { label: 'Colori per vocazione' }
+};
+export const DEFAULT_POI_COLOR_MODE = 'categoria';
+
+export function buildPoiIconImageExpression(mode) {
+  return mode === 'vocazione'
+    ? ['get', 'icon_name']
+    : ['concat', ['get', 'icon_name'], '|', ['coalesce', ['get', 'gruppo_servizio'], 'altro']];
 }
 
 // Human-friendly Italian label for a POI's raw OSM sub_type value.

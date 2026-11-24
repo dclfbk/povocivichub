@@ -1,4 +1,4 @@
-import { ALL_POI_CATEGORIES, ALL_GRUPPI, DEFAULT_MAP_STYLE } from '../config/mapConfig';
+import { ALL_POI_CATEGORIES, ALL_GRUPPI, DEFAULT_MAP_STYLE, DEFAULT_POI_COLOR_MODE } from '../config/mapConfig';
 
 // Compact single-letter/digit codes so a shared link stays short (2026-07-25
 // feedback: "voglio evitare stringhe troppo lunghe" -- lat/lon/zoom keep
@@ -37,6 +37,7 @@ const DEFAULTS = {
   // 'none' the categories looked active but nothing showed until the user
   // clicked the view toggle). Links with s=n still open with PoIs hidden.
   poiViewMode: 'icons',
+  poiColorMode: DEFAULT_POI_COLOR_MODE,
   showGrid: false,
   gridMetric: 'dominant',
   activePoiCategories: ALL_POI_CATEGORIES,
@@ -86,6 +87,7 @@ export function parseUrlState() {
     bearing: num('b', DEFAULTS.bearing),
     pitch: num('p', DEFAULTS.pitch),
     showTerrain: params.get('t') === '1',
+    poiColorMode: params.get('pc') === 'v' ? 'vocazione' : DEFAULTS.poiColorMode,
     poiViewMode: (poiCode && POI_VIEW_MODE_FROM_CODE[poiCode]) || DEFAULTS.poiViewMode,
     showGrid: params.get('g') === '1',
     gridMetric: (metricCode && GRID_METRIC_FROM_CODE[metricCode]) || DEFAULTS.gridMetric,
@@ -110,6 +112,7 @@ export function buildUrlSearch(state) {
   if (Math.round(state.bearing) !== 0) params.set('b', Math.round(state.bearing));
   if (Math.round(state.pitch) !== 0) params.set('p', Math.round(state.pitch));
   if (state.showTerrain) params.set('t', '1');
+  if (state.poiColorMode && state.poiColorMode !== DEFAULTS.poiColorMode) params.set('pc', 'v');
   if (state.poiViewMode !== DEFAULTS.poiViewMode) params.set('s', POI_VIEW_MODE_CODES[state.poiViewMode]);
 
   if (state.showGrid) {
