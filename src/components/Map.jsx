@@ -51,6 +51,38 @@ function updateTerrainButton(button, active) {
   button.title = label;
 }
 
+// Opens the PoI popup and, if it doesn't fit, pans the map so the whole card
+// is visible (2026-11-24: on phones the bottom of the card -- captions and
+// details -- ended up under the "Categorie e luoghi" button, the FBK logo and
+// the attribution). POPUP_BOTTOM_RESERVE_PX keeps clear of those overlays.
+const POPUP_MARGIN_PX = 12;
+const POPUP_BOTTOM_RESERVE_PX = 96;
+
+function openPoiPopup(map, lngLat, props) {
+  const popup = new maplibregl.Popup({ closeButton: true, offset: 12, maxWidth: 'min(24rem, 90vw)' })
+    .setLngLat(lngLat)
+    .setHTML(buildPoiPopupHtml(props))
+    .addTo(map);
+  const fit = () => {
+    const el = popup.getElement();
+    if (!el) return;
+    const card = el.getBoundingClientRect();
+    const box = map.getContainer().getBoundingClientRect();
+    const overBottom = card.bottom - (box.bottom - POPUP_BOTTOM_RESERVE_PX);
+    const overTop = (box.top + POPUP_MARGIN_PX) - card.top;
+    let dy = 0;
+    if (overBottom > 0) dy = overBottom;
+    if (overTop > 0 && overTop > -dy) dy = -overTop; // never push the top off-screen
+    if (Math.abs(dy) > 1) map.panBy([0, dy], { duration: 300 });
+  };
+  // Photos change the card's height once they load: fit now and again then.
+  requestAnimationFrame(fit);
+  popup.getElement()?.querySelectorAll('img').forEach((img) => {
+    if (!img.complete) img.addEventListener('load', fit, { once: true });
+  });
+  return popup;
+}
+
 export default function Map({
   selectedHex,
   onSelectHex,
@@ -623,10 +655,7 @@ export default function Map({
         const props = feature.properties;
         const coords = feature.geometry.coordinates.slice();
 
-        new maplibregl.Popup({ closeButton: true, offset: 12, maxWidth: 'min(24rem, 90vw)' })
-          .setLngLat(coords)
-          .setHTML(buildPoiPopupHtml(props))
-          .addTo(map);
+        openPoiPopup(map, coords, props);
       });
 
       setLoaded(true);
@@ -878,10 +907,7 @@ export default function Map({
     map.flyTo({ center: [lng, lat], zoom: Math.max(map.getZoom(), 17), duration: 1200 });
 
     const openPopup = () => {
-      new maplibregl.Popup({ closeButton: true, offset: 12, maxWidth: 'min(24rem, 90vw)' })
-        .setLngLat([lng, lat])
-        .setHTML(buildPoiPopupHtml(flyToTarget))
-        .addTo(map);
+      openPoiPopup(map, [lng, lat], flyToTarget);
     };
     map.once('moveend', openPopup);
     return () => map.off('moveend', openPopup);

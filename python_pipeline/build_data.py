@@ -1739,7 +1739,9 @@ MAPPATURA_KEYWORDS = [
     ('masso', 'occasionali', 'nature_reserve', 'nature_reserve', 'Sito Naturalistico'),
     ('albero', 'occasionali', 'nature_reserve', 'nature_reserve', 'Albero Monumentale'),
     ('giardino', 'occasionali', 'park', 'garden', 'Giardino Pubblico'),
-    ('villa', 'occasionali', 'monument', 'monument', 'Edificio Storico'),
+    # Trailing space: a whole word, so "Villazzano" (ANA Povo-Villazzano)
+    # no longer turns an association into a historic building (2026-11-24).
+    ('villa ', 'occasionali', 'villa', 'villa', 'Edificio Storico'),
     ('agritur', 'occasionali', 'hotel', 'guest_house', 'Agriturismo'),
     ('bookcrossing', 'cross_civic', 'library', 'public_bookcase', 'Bookcrossing'),
     ('biblioteca', 'pendolari', 'library', 'library', 'Biblioteca'),

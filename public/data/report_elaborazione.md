@@ -234,9 +234,9 @@ _Generato automaticamente da `python_pipeline/build_data.py`._
 
 | Categoria | W_cat | ICC medio | N. PoI |
 |---|---|---|---|
-| cross_civic | 1.0 | 90.0 | 74 |
+| cross_civic | 1.0 | 90.0 | 75 |
 | residenti | 0.8 | 78.0 | 113 |
-| occasionali | 0.6 | 52.9 | 134 |
+| occasionali | 0.6 | 52.9 | 133 |
 | pendolari | 0.4 | 62.0 | 60 |
 
 ## 5. Anomalie Rilevate

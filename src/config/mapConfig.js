@@ -503,7 +503,11 @@ export const CLUSTER_CATEGORY_PROPERTIES = {
 // street-furniture noise, 2026-07-25) but is harmless to leave mapped here.
 export const ICON_VISUALS = {
   castle: { emoji: '🏰', color: CATEGORY_STYLES.occasionali.color },
-  monument: { emoji: '🗿', color: CATEGORY_STYLES.occasionali.color },
+  // 🏛️ rather than the moai (2026-11-24: "la testa dell'isola di Pasqua no",
+  // and it also showed up on a villa).
+  monument: { emoji: '🏛️', color: CATEGORY_STYLES.occasionali.color },
+  // Historic villas (mappatura "Villa ..." entries).
+  villa: { emoji: '🏡', color: CATEGORY_STYLES.occasionali.color },
   ruins: { emoji: '🏚️', color: CATEGORY_STYLES.occasionali.color },
   historic: { emoji: '🎖️', color: CATEGORY_STYLES.occasionali.color },
   theater: { emoji: '🎭', color: CATEGORY_STYLES.occasionali.color },
@@ -882,6 +886,18 @@ function escapeHtml(text) {
     .replace(/"/g, '&quot;');
 }
 
+// Turns web addresses in an already-escaped description into links that open
+// in a new tab (2026-11-24). Matches http(s)://... and bare www....; trailing
+// punctuation (".", ",", ")", ...) stays outside the link.
+function linkifyEscaped(escaped) {
+  return escaped.replace(/\b(https?:\/\/|www\.)[^\s<]+/gi, (match) => {
+    const trail = match.match(/[.,;:!?)\]]+$/);
+    const url = trail ? match.slice(0, -trail[0].length) : match;
+    const href = /^https?:/i.test(url) ? url : `https://${url}`;
+    return `<a href="${href}" target="_blank" rel="noopener noreferrer" style="color: #a5b4fc; text-decoration: underline; word-break: break-all;">${url}</a>${trail ? trail[0] : ''}`;
+  });
+}
+
 function detailRow(icon, label, value) {
   if (!value || String(value).trim().length === 0) return '';
   return `
@@ -1067,7 +1083,7 @@ export function buildPoiPopupHtml(props) {
         ` : ''}
         ${props.descrizione ? `
           <div style="font-size: 0.875rem; color: #e2e8f0; margin-top: 8px; line-height: 1.45; max-height: 140px; overflow-y: auto;">
-            ${escapeHtml(props.descrizione).replace(/\n/g, '<br>')}
+            ${linkifyEscaped(escapeHtml(props.descrizione)).replace(/\n/g, '<br>')}
           </div>
         ` : ''}
         ${detailsHtml ? `

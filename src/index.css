@@ -177,3 +177,13 @@
   background: #4f46e5;
   color: #ffffff;
 }
+
+/* PoI popup above the map's own controls (FBK logo, attribution, scale) and,
+   on short screens, never taller than the map: the card scrolls instead. */
+.maplibregl-popup {
+  z-index: 3;
+}
+.maplibregl-popup-content {
+  max-height: calc(100dvh - 140px);
+  overflow-y: auto;
+}
