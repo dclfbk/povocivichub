@@ -2487,9 +2487,59 @@ def _rehost_photo(src_path, fname, credit):
 
 
 def _foto_credit(foto):
-    """'© Circoscrizione di Povo, 2026' / '© archivio Claudia Bonvecchio, 1955'."""
+    """'© Circoscrizione di Povo, 23/08/2025' / '© archivio Claudia Bonvecchio, 1955'."""
     fonte = FOTO_FONTE_ESTESA.get(foto['fonte'], foto['fonte'])
-    return ', '.join(p for p in (fonte, foto['anno'].lower() if foto['anno'].isupper() else foto['anno']) if p)
+    quando = foto.get('data_scatto') or (foto['anno'].lower() if foto['anno'].isupper() else foto['anno'])
+    return ', '.join(p for p in (fonte, quando) if p)
+
+
+def _exif_date(path):
+    """EXIF capture date as dd/mm/yyyy, or '' (no EXIF, or unreadable)."""
+    from PIL import Image
+
+    try:
+        ex = Image.open(path).getexif()
+        raw = ex.get_ifd(0x8769).get(36867) or ex.get_ifd(0x8769).get(36868) or ex.get(306)
+        m = re.match(r'(\d{4}):(\d{2}):(\d{2})', str(raw or ''))
+        return f"{m.group(3)}/{m.group(2)}/{m.group(1)}" if m and m.group(1) != '0000' else ''
+    except Exception:
+        return ''
+
+
+def _dedupe_and_date_fotos(fotos, stats):
+    """
+    (2026-11-28) Identical files uploaded under two names (533/534 Cimirlo):
+    only the most recently modified one is kept. Current photos get their
+    EXIF capture date ("data_scatto"), which wins over the year typed in the
+    file name; historical photos keep the name's year, since their EXIF is
+    the scan date (531-2-S says 2017). Name/EXIF year mismatches are listed
+    in the report so the file names can be fixed.
+    """
+    import hashlib
+
+    by_hash = {}
+    for foto in fotos:
+        path = os.path.join(REVISIONE_FOTO_DIR, foto['file'])
+        with open(path, 'rb') as fh:
+            by_hash.setdefault(hashlib.md5(fh.read()).hexdigest(), []).append(foto)
+    kept = []
+    for group in by_hash.values():
+        group.sort(key=lambda f: os.path.getmtime(os.path.join(REVISIONE_FOTO_DIR, f['file'])))
+        kept.append(group[-1])
+        for dup in group[:-1]:
+            stats.setdefault('foto_doppie', []).append(f"{dup['file']} = {group[-1]['file']} (tenuta la più recente)")
+    for foto in kept:
+        if foto['storica']:
+            continue
+        data = _exif_date(os.path.join(REVISIONE_FOTO_DIR, foto['file']))
+        if not data:
+            continue
+        foto['data_scatto'] = data
+        if foto['anno'].isdigit() and foto['anno'] != data[-4:]:
+            stats.setdefault('foto_anno_diverso', []).append(
+                f"{foto['file']}: nel nome {foto['anno']}, scattata il {data}")
+        foto['anno'] = data[-4:]
+    return sorted(kept, key=lambda f: f['file'])
 
 
 def _rehost_revisione_foto(foto):
@@ -2618,6 +2668,7 @@ def apply_revisione_circoscrizione(gdf_utm, gdf_wgs84):
                     stats['foto_senza_punto'].append(f + ' (nome non riconosciuto)')
                 continue
             fotos.append(foto)
+    fotos = _dedupe_and_date_fotos(fotos, stats)
     # Photos are grouped per "view": row N and its variants "N bis", "N ter"
     # are the same place shot from different viewpoints (2026-11-24). Each
     # view's first historical + first current photo form a comparison pair
@@ -2641,8 +2692,12 @@ def apply_revisione_circoscrizione(gdf_utm, gdf_wgs84):
             stats['foto_storiche' if foto['storica'] else 'foto_attuali'] += 1
 
     def _year(v):
-        m = re.search(r'\d{4}', v.get('new', {}).get('anno', ''))
-        return int(m.group()) if m else 0
+        def y(key):
+            m = re.search(r'\d{4}', v.get(key, {}).get('anno', ''))
+            return int(m.group()) if m else 0
+        # Newest current photo first; on a tie, the newest historical one
+        # (Piazza Manci: 1955 <-> 2026 before fine 800 <-> 2026).
+        return (y('new'), y('old'))
 
     gdf_utm['foto_coppie'] = ''
     gdf_wgs84['foto_coppie'] = ''
@@ -2686,6 +2741,8 @@ def apply_revisione_circoscrizione(gdf_utm, gdf_wgs84):
         print("    Review rows with no PoI on the map:", ', '.join(stats['righe_senza_punto']))
     if stats['foto_senza_punto']:
         print("    Photos not attached:", ', '.join(stats['foto_senza_punto']))
+    for line in stats.get('foto_doppie', []) + stats.get('foto_anno_diverso', []):
+        print("      foto:", line)
     return gdf_utm, gdf_wgs84, stats
 
 
@@ -3499,7 +3556,9 @@ def write_report(path, stats, gdf_pois_wgs84):
         lines.append(f"- Descrizioni della Circoscrizione applicate: **{rev['descrizioni']}** (+ {rev['link_approfondimento']} link \"Approfondisci\")")
         lines.append(f"- Foto attuali: **{rev['foto_attuali']}**, foto storiche: **{rev['foto_storiche']}**")
         for label, items in (("Righe senza punto sulla mappa", rev['righe_senza_punto']),
-                             ("Foto non collegate", rev['foto_senza_punto'])):
+                             ("Foto non collegate", rev['foto_senza_punto']),
+                             ("Foto doppie (file identici)", rev.get('foto_doppie', [])),
+                             ("Anno nel nome diverso dalla data di scatto (EXIF)", rev.get('foto_anno_diverso', []))):
             if items:
                 lines.append(f"- {label}: " + ', '.join(items))
         lines.append("")

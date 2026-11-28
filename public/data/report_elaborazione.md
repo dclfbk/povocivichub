@@ -87,7 +87,10 @@ _Generato automaticamente da `python_pipeline/build_data.py`._
 - Panchine eliminate: **129**
 - Altri PoI eliminati (escludere = Sì): **25**
 - Descrizioni della Circoscrizione applicate: **29** (+ 16 link "Approfondisci")
-- Foto attuali: **31**, foto storiche: **6**
+- Foto attuali: **36**, foto storiche: **6**
+- Foto non collegate: 534-2026-1-Circoscrizione.jpeg
+- Foto doppie (file identici): 533-2026-1-Circoscrizione.jpeg = 534-2026-1-Circoscrizione.jpeg (tenuta la più recente)
+- Anno nel nome diverso dalla data di scatto (EXIF): 001-1-2026-Circoscrizione.jpg: nel nome 2026, scattata il 14/05/2025, 133-1-2016-Circoscrizione.jpg: nel nome 2016, scattata il 26/10/2026, 192-1-2026-Circoscrizione.jpg: nel nome 2026, scattata il 23/08/2025, 194-1-2026-Circoscrizione.jpg: nel nome 2026, scattata il 23/08/2025, 196-1-2026-Circoscrizione.jpg: nel nome 2026, scattata il 23/08/2025, 212-1-2026-Circoscrizione.jpg: nel nome 2026, scattata il 23/08/2025, 288-1-2026-Circoscrizione.jpg: nel nome 2026, scattata il 23/08/2025, 331-1-2026-Circoscrizione.jpg: nel nome 2026, scattata il 23/08/2025, 506-1-2026-Circoscrizione.jpg: nel nome 2026, scattata il 14/10/2025
 
 ## 1b. Mappatura servizi della Circoscrizione (PDF + Google My Maps)
 
@@ -276,7 +279,7 @@ _Generato automaticamente da `python_pipeline/build_data.py`._
 
 - `orari_apertura` compilato: **50 / 380**
 - `contatti` compilato: **40 / 380**
-- `image_url` compilato: **121 / 380**
+- `image_url` compilato: **126 / 380**
 - `accessibilita_disabili` compilato: **41 / 380**
 
 ## 4. Indice di Classe Civica (ICC) medio per categoria
