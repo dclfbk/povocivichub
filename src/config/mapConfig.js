@@ -56,7 +56,7 @@ export function filterPoisForMap(poisData, categories, gruppi) {
 // orthophoto -- the OpenFreeMap styles previously offered here were dropped).
 // 'hiking-it' is the default (it surfaces trail/outdoor detail relevant to
 // this project's outdoor-sport focus, see [[project_outdoor_sport_focus]]
-// in project memory); 'aerial' is a single raster XYZ layer (2019 Trento
+// in project memory); 'aerial' is a single raster layer (Comune di Trento 2024
 // orthophoto), not a full style, so Map.jsx builds a minimal raster-only
 // style object for it instead of passing the tile URL straight to setStyle.
 // Labels deliberately drop the "(IT)" suffix (2026-07-28 feedback).
@@ -64,21 +64,19 @@ export const MAP_STYLES = {
   'street-it': { label: 'Stradale', url: 'https://styles.maptoolkit.org/street-it.json' },
   'hiking-it': { label: 'Escursionismo', url: 'https://styles.maptoolkit.org/hiking-it.json' },
   'cycling-it': { label: 'Cicloturismo', url: 'https://styles.maptoolkit.org/cycling-it.json' },
+  // Comune di Trento orthophoto 2024 (2026-11-28, asked by the
+  // Circoscrizione: "l'ultima aggiornata"), from the Comune's QGIS Server at
+  // gis.comune.trento.it/ogc (layers ortofoto_2024/2019/2016/2015/2009, no
+  // fees/constraints, CORS open). The capabilities only advertise EPSG:25832
+  // but the server renders EPSG:3857 bboxes fine. Replaces the 2019
+  // OpenAerialMap copy; the key stays 'aerial' so shared links (bg=a) keep working.
   aerial: {
-    label: 'Ortofotocarta Trento 2019',
-    // The given tiles.openaerialmap.org URL 302-redirects to this exact
-    // titiler.hotosm.org endpoint (same COG file, verified stable across
-    // z/x/y). Using it directly avoids a real browser limitation: the
-    // openaerialmap.org redirect hop carries no Access-Control-Allow-Origin
-    // header, which fails MapLibre's fetch()-based raster tile loading with
-    // a CORS error even though the final destination allows it (confirmed
-    // in-browser: fetching the redirecting URL fails, fetching this one
-    // succeeds with `access-control-allow-origin: *`).
+    label: 'Ortofoto Trento 2024',
     tiles: [
-      'https://titiler.hotosm.org/cog/tiles/WebMercatorQuad/{z}/{x}/{y}@1x' +
-      '?url=https://oin-hotosm-temp.s3.us-east-1.amazonaws.com/60770b0fb85cd80007a01414/0/60770b0fb85cd80007a01415.tif'
+      'https://gis.comune.trento.it/ogc?SERVICE=WMS&VERSION=1.3.0&REQUEST=GetMap&LAYERS=ortofoto_2024&STYLES=' +
+      '&CRS=EPSG:3857&BBOX={bbox-epsg-3857}&WIDTH=256&HEIGHT=256&FORMAT=image/jpeg'
     ],
-    attribution: 'OpenAerialMap &bull; Provincia Autonoma di Trento (Ortofotocarta 2019)'
+    attribution: 'Comune di Trento &bull; Ortofoto 2024'
   },
   // Austrian cadastral map of the C.C. Povo (mid-1800s), from the Provincia's
   // HISTORICALkat archive (Archivio storico dell'Ufficio catasto). It's a
