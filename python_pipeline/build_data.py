@@ -2421,10 +2421,13 @@ def _parse_revisione_foto(filename):
     if not m or ext.lower() not in ('.jpg', '.jpeg', '.png', '.webp'):
         return None
     fonte = re.sub(r'^https?[_:/]+', '', m['fonte']).strip(' _-')
-    anno = m['anno'].strip()
+    k, anno = m['k'], m['anno'].strip()
+    # Tolerate the swapped form N-ANNO-K ("458-2026-1-Circoscrizione", 2026-11-28).
+    if len(k) == 4 and anno.isdigit() and len(anno) <= 2:
+        k, anno = anno, k
     n_num, _, n_bis = m['n'].partition(' ')
     return {
-        'n': str(int(n_num)) + (' ' + n_bis if n_bis else ''), 'k': int(m['k']), 'storica': bool(m['s']),
+        'n': str(int(n_num)) + (' ' + n_bis if n_bis else ''), 'k': int(k), 'storica': bool(m['s']),
         'anno': '' if set(anno.upper()) <= {'X'} else anno.replace('?', '').strip(),
         'fonte': fonte, 'file': filename,
     }

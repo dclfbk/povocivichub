@@ -13,52 +13,61 @@ _Generato automaticamente da `python_pipeline/build_data.py`._
 - PoI solo OSM (nessun corrispondente locale): **434**
 - PoI iniettati manualmente (assenti da OSM e dal dataset locale): **0**
 - Impianti sportivi ad accesso privato rimossi (non solo esclusi dagli indicatori, eliminati dal dataset): **0**
-- **Totale PoI finali nel dataset unificato: 381**
+- **Totale PoI finali nel dataset unificato: 380**
 
 ## 1d. Eventi di TuttaPovo
 
-- Eventi letti: **178**, collegati a un punto della mappa: **142**
-- Miniature delle locandine: **29**
+- Eventi letti: **213**, collegati a un punto della mappa: **168**
+- Miniature delle locandine: **30**
 - Eventi senza un luogo riconosciuto (fuori Povo, generici o non luoghi; per collegarli aggiungere una regola in raw_data/eventi_luoghi.csv):
+  - Castello del Buonconsiglio
+  - Chiesa di Oltrecastello
   - Chiesa di Villazzano - BASTA LA SALUTE PER ESSERE SALVI?
   - Chiesa di Villazzano - BRICIOLE DI SALVEZZA: UN PERCORSO NELLA CONTEMPORANEITA'
   - Circoscrizione sala consiglio
   - Festa delle comunità parrocchiali di Povo e Villazzano
   - Fotografare Povo nell'estate 24
   - Gargazzone (BZ)
+  - Giro in compagnia dei presepi nel sobborgo di Povo
   - Hotel Alexander Rivabella di Rimini
   - Inviare foto articoli da pubblicare su Tuttapovo
   - Invio di documenti, dediche o foto per la pubblicazione sul periodico
   - L'associazione invita tutti coloro che fossero interessati a partecipare come an
   - L'associazione invita tutti coloro che fossero interessati a partecipare come vo
+  - Lettura di sue poesie con dibattito e commenti finali
   - Malga Preghena Alta
   - Oltrecastello
   - Oratorio Villazzano
   - POVO E OLTRECASTELLO
   - Partenza da Povo ore 7.00
   - Percorso presepi in vari luoghi del sobborgo
+  - Piazza Cesare Battisti Trento
   - Piazzale Merler
   - Povo
   - Povo e Oltrecastello
   - Povo e dintorni
+  - S.A.S.S. : Piazza Cesare Battisti, 38122 Trento TN
   - SAT Povo organizza la Traversata al Monte Mulaz da Passo Valles alla Val Venegia
   - Sala Consiglio
   - Sala di Rappresentanza Pal. Geremia Trento Via Belenzani
   - Sede del Circolo
   - Sobborghi di Povo
+  - TORRE VANGA: P. zza della Portella, 1, 38122 Trento TN
   - Trento Piedicastello piazzale Divisioni Alpine/Doss Trento Museo Nazionale Stori
   - Trento Via S.Giovanni Bosco 4 Auditorium del Conservatorio
   - Trimestrale Tuttapovo
   - Ufficio circoscrizione di Povo
+  - VISITA AI PRESEPI MONUMENTALI DI NOMI, PRANZO AL RISTORANTE SAN COLOMBANO e POME
   - Val d'Algone - Parco Naturale Adamello Brenta
+  - Vari luoghi nel sobborgo
   - Vie e piazze di Povo
   - centro sportivo Don Onorio Spada via valnigra 69 Villazzano
   - centro sportivo don onorio spada via valnigra 69, 38123 villazzano trento
 
 ## 1c. Indirizzi dal civico più vicino (Comune di Trento)
 
-- PoI senza indirizzo prima di questo passaggio: **314**
-- Indirizzo assegnato dal civico più vicino (<= 15 m, raggiungibile a piedi): **60**
+- PoI senza indirizzo prima di questo passaggio: **312**
+- Indirizzo assegnato dal civico più vicino (<= 15 m, raggiungibile a piedi): **59**
 - Civici vicini scartati perché non raggiungibili sul grafo pedonale: **12** (da verificare a mano: nelle piazze e nei cortili il grafo OSM non ha i passaggi interni)
   - Fontanella / Piazza G. Manci 5: 12 m in linea d'aria, non raggiungibile
   - Povo / "Centro Civico" / Via Salè 1: 13 m in linea d'aria, 66 m a piedi
@@ -76,7 +85,7 @@ _Generato automaticamente da `python_pipeline/build_data.py`._
 ## 1a. Revisione della Circoscrizione (foglio "Dati PovoCivicHub")
 
 - Panchine eliminate: **129**
-- Altri PoI eliminati (escludere = Sì): **24**
+- Altri PoI eliminati (escludere = Sì): **25**
 - Descrizioni della Circoscrizione applicate: **29** (+ 16 link "Approfondisci")
 - Foto attuali: **31**, foto storiche: **6**
 
@@ -265,10 +274,10 @@ _Generato automaticamente da `python_pipeline/build_data.py`._
 
 ## 3. Qualità del Dato
 
-- `orari_apertura` compilato: **50 / 381**
-- `contatti` compilato: **40 / 381**
-- `image_url` compilato: **121 / 381**
-- `accessibilita_disabili` compilato: **41 / 381**
+- `orari_apertura` compilato: **50 / 380**
+- `contatti` compilato: **40 / 380**
+- `image_url` compilato: **121 / 380**
+- `accessibilita_disabili` compilato: **41 / 380**
 
 ## 4. Indice di Classe Civica (ICC) medio per categoria
 
@@ -276,7 +285,7 @@ _Generato automaticamente da `python_pipeline/build_data.py`._
 |---|---|---|---|
 | cross_civic | 1.0 | 90.0 | 75 |
 | residenti | 0.8 | 78.0 | 113 |
-| occasionali | 0.6 | 52.9 | 133 |
+| occasionali | 0.6 | 53.0 | 132 |
 | pendolari | 0.4 | 62.0 | 60 |
 
 ## 5. Anomalie Rilevate
